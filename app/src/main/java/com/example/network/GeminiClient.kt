@@ -7,6 +7,8 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import kotlinx.coroutines.delay
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
@@ -106,6 +108,17 @@ interface GeminiApiService {
 object GeminiClient {
     private const val TAG = "GeminiClient"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/"
+    private const val MAX_INLINE_AUDIO_BASE64_CHARS = 20_000_000
+
+    private val TEXT_MODELS = listOf(
+        "gemini-3.5-flash",
+        "gemini-2.5-flash"
+    )
+
+    private val IMAGE_MODELS = listOf(
+        "gemini-3.1-flash-image",
+        "gemini-2.5-flash-image"
+    )
 
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
@@ -132,14 +145,65 @@ object GeminiClient {
             .create(GeminiApiService::class.java)
     }
 
+    private suspend fun generateContentWithRetry(
+        apiKey: String,
+        request: GenerateContentRequest,
+        models: List<String> = TEXT_MODELS,
+        maxRetriesPerModel: Int = 3
+    ): GenerateContentResponse {
+        var lastError: Exception? = null
+
+        for (model in models) {
+            repeat(maxRetriesPerModel) { attempt ->
+                try {
+                    return service.generateContent(model, apiKey, request)
+                } catch (e: HttpException) {
+                    lastError = e
+                    val retryable = e.code() in listOf(429, 500, 502, 503, 504)
+                    if (retryable && attempt < maxRetriesPerModel - 1) {
+                        val delayMs = 1500L * (attempt + 1) * (attempt + 1)
+                        Log.w(TAG, "Model $model returned HTTP ${e.code()}, retrying in ${delayMs}ms")
+                        delay(delayMs)
+                    } else if (!retryable) {
+                        throw e
+                    }
+                } catch (e: Exception) {
+                    lastError = e
+                    if (attempt < maxRetriesPerModel - 1) {
+                        delay(1500L * (attempt + 1))
+                    }
+                }
+            }
+            Log.w(TAG, "Model $model unavailable, trying fallback model")
+        }
+
+        throw lastError ?: IllegalStateException("All Gemini models failed")
+    }
+
+    private fun formatApiError(e: Exception, action: String = "request"): String {
+        if (e is HttpException) {
+            return when (e.code()) {
+                503, 502, 504 -> "Gemini servers are temporarily busy (HTTP ${e.code()}). Wait a moment and try again, or type your dream instead."
+                429 -> "Gemini rate limit reached. Please wait a minute and try again."
+                401, 403 -> "API key rejected. Check your GEMINI_API_KEY in the .env file."
+                else -> "Gemini API error during $action (HTTP ${e.code()}). Please try again."
+            }
+        }
+        return "${action.replaceFirstChar { it.uppercase() }} failed: ${e.localizedMessage}"
+    }
+
     /**
-     * Transcribes audio using gemini-3.5-flash
+     * Transcribes audio using Gemini multimodal models.
      */
     suspend fun transcribeAudio(audioBytesBase64: String, mimeType: String): String {
         val apiKey = BuildConfig.GEMINI_API_KEY
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             Log.e(TAG, "Gemini API key is not set or is placeholder")
             return "API Key Error: Please set your GEMINI_API_KEY in the Secrets panel."
+        }
+
+        if (audioBytesBase64.length > MAX_INLINE_AUDIO_BASE64_CHARS) {
+            return "Recording is too long to upload. Please keep recordings shorter or type your dream instead."
         }
 
         val request = GenerateContentRequest(
@@ -154,12 +218,12 @@ object GeminiClient {
         )
 
         return try {
-            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = generateContentWithRetry(apiKey, request)
             response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
                 ?: "No transcription received."
         } catch (e: Exception) {
             Log.e(TAG, "Audio transcription failed", e)
-            "Transcription failed: ${e.localizedMessage}"
+            "Transcription failed: ${formatApiError(e, "transcription")}"
         }
     }
 
@@ -208,7 +272,7 @@ object GeminiClient {
         )
 
         return try {
-            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = generateContentWithRetry(apiKey, request)
             val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
             var emotion = "mystery"
             var symbols = "abstract shapes"
@@ -245,8 +309,6 @@ object GeminiClient {
             Log.e(TAG, "Gemini API key is not set or is placeholder")
             return ImageGenerationResult(null)
         }
-
-        val imageModel = "gemini-3.1-flash-image"
 
         suspend fun attemptGeneration(extraction: DreamThemeExtraction): String? {
             val prompt = "A surrealist painting in the style of dreamlike symbolism, depicting ${extraction.coreEmotion}. Central imagery: ${extraction.keySymbols}. Color palette: ${extraction.colorMood}. Style: reminiscent of Dalí and Magritte, soft brushwork, impossible perspective, symbolic and metaphorical rather than literal, painterly texture, dramatic lighting, no text, no logos, no legible writing."
