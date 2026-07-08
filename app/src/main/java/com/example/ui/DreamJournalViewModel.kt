@@ -11,6 +11,8 @@ import com.example.data.AppDatabase
 import com.example.data.ChatMessage
 import com.example.data.Dream
 import com.example.data.DreamRepository
+import com.example.data.UsageQuotaSnapshot
+import com.example.data.UsageQuotaStore
 import com.example.network.ApiKeyProvider
 import com.example.network.Content
 import com.example.network.GeminiClient
@@ -68,6 +70,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
 
     private val repository: DreamRepository
     private val apiKeyStore = ApiKeyStore(context)
+    private val usageQuotaStore = UsageQuotaStore(context)
     val allDreams: StateFlow<List<Dream>>
 
     private val _storedApiKey = MutableStateFlow("")
@@ -78,6 +81,14 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
 
     private val _analyzeWithAiDefault = MutableStateFlow(false)
     val analyzeWithAiDefault: StateFlow<Boolean> = _analyzeWithAiDefault.asStateFlow()
+
+    private val _usageQuota = MutableStateFlow(
+        UsageQuotaSnapshot(isPro = false, usedThisMonth = 0)
+    )
+    val usageQuota: StateFlow<UsageQuotaSnapshot> = _usageQuota.asStateFlow()
+
+    private val _paywallRequested = MutableStateFlow(false)
+    val paywallRequested: StateFlow<Boolean> = _paywallRequested.asStateFlow()
 
     init {
         val database = AppDatabase.getDatabase(context)
@@ -99,6 +110,12 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             apiKeyStore.analyzeWithAiDefault.collect { enabled ->
                 _analyzeWithAiDefault.value = enabled
+            }
+        }
+
+        viewModelScope.launch {
+            usageQuotaStore.usageSnapshot.collect { snapshot ->
+                _usageQuota.value = snapshot
             }
         }
     }
@@ -172,6 +189,36 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             apiKeyStore.saveAnalyzeWithAiDefault(enabled)
         }
+    }
+
+    fun clearPaywallRequest() {
+        _paywallRequested.value = false
+    }
+
+    private fun requestPaywall() {
+        _paywallRequested.value = true
+    }
+
+    fun setProUserForTesting(enabled: Boolean) {
+        viewModelScope.launch {
+            usageQuotaStore.setProUser(enabled)
+        }
+    }
+
+    private suspend fun beginAnalysisOrShowPaywall(): Boolean {
+        if (usageQuotaStore.reserveAnalysisSlot()) {
+            return true
+        }
+        requestPaywall()
+        return false
+    }
+
+    private suspend fun requireProOrShowPaywall(): Boolean {
+        if (_usageQuota.value.isPro) {
+            return true
+        }
+        requestPaywall()
+        return false
     }
 
     fun selectDream(dreamId: Long?) {
@@ -367,6 +414,11 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                 )
 
                 if (analyzeNow) {
+                    if (!beginAnalysisOrShowPaywall()) {
+                        _recordingState.value = RecordingState.Success(id)
+                        _selectedDreamId.value = id
+                        return@launch
+                    }
                     runImageAndInterpretationPipeline(id, text.trim(), updateRecordingState = true)
                 } else {
                     _recordingState.value = RecordingState.Success(id)
@@ -383,6 +435,10 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             val dream = allDreams.value.find { it.id == dreamId } ?: return@launch
             if (dream.analysisStatus == "pending" || dream.analysisStatus == "complete") return@launch
+
+            if (!beginAnalysisOrShowPaywall()) {
+                return@launch
+            }
 
             _analyzingDreamId.value = dreamId
             repository.updateDream(
@@ -451,6 +507,10 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         if (question.isBlank() || _isSendingChatMessage.value) return
 
         viewModelScope.launch {
+            if (!requireProOrShowPaywall()) {
+                return@launch
+            }
+
             _isSendingChatMessage.value = true
             try {
                 // 1. Save user's chat message to DB
@@ -509,6 +569,21 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                 }
 
                 if (!analyzeNow) {
+                    val id = repository.insertDream(
+                        Dream(
+                            rawText = VOICE_DEFERRED_PLACEHOLDER,
+                            audioPath = stableAudioFile.absolutePath,
+                            title = "Voice Dream",
+                            analysisStatus = "deferred",
+                            artworkStatus = "deferred"
+                        )
+                    )
+                    _recordingState.value = RecordingState.Success(id)
+                    _selectedDreamId.value = id
+                    return@launch
+                }
+
+                if (!beginAnalysisOrShowPaywall()) {
                     val id = repository.insertDream(
                         Dream(
                             rawText = VOICE_DEFERRED_PLACEHOLDER,
@@ -728,6 +803,10 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
      */
     fun regenerateDreamArtwork(dreamId: Long) {
         viewModelScope.launch {
+            if (!requireProOrShowPaywall()) {
+                return@launch
+            }
+
             val dream = allDreams.value.find { it.id == dreamId }
             if (dream != null) {
                 try {
@@ -783,6 +862,10 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
      */
     fun generatePatternAnalysis() {
         viewModelScope.launch {
+            if (!requireProOrShowPaywall()) {
+                return@launch
+            }
+
             val dreams = allDreams.value
             if (dreams.isEmpty()) {
                 _patternAnalysisState.value = PatternAnalysisState.Error("No dreams have been recorded yet. Please capture some dreams first!")

@@ -60,6 +60,7 @@ import androidx.navigation.navArgument
 import coil.compose.AsyncImage
 import com.example.data.ChatMessage
 import com.example.data.Dream
+import com.example.data.UsageQuotaSnapshot
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -91,6 +92,7 @@ object Routes {
     const val DETAIL = "detail/{dreamId}"
     const val PATTERN_ANALYSIS = "pattern_analysis"
     const val SETTINGS = "settings"
+    const val PAYWALL = "paywall"
     fun detail(id: Long) = "detail/$id"
 }
 
@@ -106,6 +108,14 @@ fun DreamJournalApp(
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val paywallRequested by viewModel.paywallRequested.collectAsStateWithLifecycle()
+
+    LaunchedEffect(paywallRequested) {
+        if (paywallRequested) {
+            viewModel.clearPaywallRequest()
+            navController.navigate(Routes.PAYWALL) { launchSingleTop = true }
+        }
+    }
 
     // Redirect to detail screen immediately on successful transcription/generation
     LaunchedEffect(recordingState) {
@@ -283,6 +293,245 @@ fun DreamJournalApp(
                         navController = navController
                     )
                 }
+                composable(Routes.PAYWALL) {
+                    PaywallScreen(
+                        viewModel = viewModel,
+                        navController = navController
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProFeatureBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(DreamGold.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+            .border(1.dp, DreamGold.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = "PRO",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = DreamGold,
+            letterSpacing = 0.5.sp
+        )
+    }
+}
+
+@Composable
+fun UsageQuotaCard(
+    usageQuota: UsageQuotaSnapshot,
+    onUpgradeClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = !usageQuota.isPro) { onUpgradeClick() }
+            .testTag("usage_quota_card"),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = EtherealCard),
+        border = BorderStroke(
+            1.dp,
+            if (usageQuota.isPro) DreamTeal.copy(alpha = 0.5f) else DreamGold.copy(alpha = 0.4f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(
+                        Brush.linearGradient(colors = listOf(DreamPurple, DreamGold)),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (usageQuota.isPro) Icons.Default.Verified else Icons.Default.Star,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (usageQuota.isPro) "Dream Weaver Pro" else "Free plan",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (usageQuota.isPro) DreamTeal else DreamGold
+                )
+                Text(
+                    text = if (usageQuota.isPro) {
+                        "Unlimited AI dream analyses"
+                    } else {
+                        "${usageQuota.remaining} of ${usageQuota.monthlyLimit} AI analyses left this month"
+                    },
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    lineHeight = 16.sp
+                )
+            }
+            if (!usageQuota.isPro) {
+                Text(
+                    text = "Upgrade",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = DreamTeal
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PaywallScreen(
+    viewModel: DreamJournalViewModel,
+    navController: NavHostController
+) {
+    val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(CosmicBackground)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            IconButton(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.align(Alignment.Start)
+            ) {
+                Icon(Icons.AutoMirrored.Default.ArrowBack, contentDescription = "Back", tint = NebulaLavender)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .background(
+                        Brush.linearGradient(colors = listOf(DreamPurple, DreamTeal, DreamGold)),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "Dream Weaver Pro",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Serif,
+                color = NebulaLavender,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Understand your subconscious without limits",
+                fontSize = 14.sp,
+                color = DreamTeal,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            val benefits = listOf(
+                "Unlimited AI dream analyses",
+                "Surreal artwork for every dream",
+                "Symbol interpreter chat",
+                "Cross-dream pattern insights",
+                "Regenerate artwork anytime"
+            )
+            benefits.forEach { benefit ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = DreamTeal, modifier = Modifier.size(20.dp))
+                    Text(benefit, fontSize = 14.sp, color = NebulaLavender)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                border = BorderStroke(1.dp, EtherealCardBorder)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "\$4.99 / month",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DreamGold
+                    )
+                    Text(
+                        text = "or \$39.99 / year (save 33%)",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Google Play billing coming in the next update!",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("paywall_upgrade_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = DreamPurple)
+                    ) {
+                        Text("Upgrade to Pro", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (!usageQuota.isPro) {
+                Text(
+                    text = "You have ${usageQuota.remaining} free analyses left this month. Saving dreams is always free.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            TextButton(onClick = { navController.popBackStack() }) {
+                Text("Maybe later", color = TextSecondary)
             }
         }
     }
@@ -295,6 +544,7 @@ fun SettingsScreen(
 ) {
     val storedApiKey by viewModel.storedApiKey.collectAsStateWithLifecycle()
     val apiTestState by viewModel.apiTestState.collectAsStateWithLifecycle()
+    val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
     var apiKeyInput by remember(storedApiKey) { mutableStateOf(storedApiKey) }
 
     Box(
@@ -448,6 +698,63 @@ fun SettingsScreen(
                         Text("• Try on Wi‑Fi instead of mobile data", color = TextSecondary, fontSize = 12.sp)
                     }
                 }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                    border = BorderStroke(1.dp, DreamGold.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(
+                                    Brush.linearGradient(colors = listOf(DreamGold, DreamPurple)),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "Unlock Pro (testing)",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DreamGold
+                                )
+                                ProFeatureBadge()
+                            }
+                            Text(
+                                text = "Bypass usage limits while Google Play billing is in development.",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        Switch(
+                            checked = usageQuota.isPro,
+                            onCheckedChange = viewModel::setProUserForTesting,
+                            modifier = Modifier.testTag("pro_testing_switch")
+                        )
+                    }
+                }
             }
         }
     }
@@ -525,6 +832,7 @@ fun DashboardScreen(
 ) {
     val dreams by viewModel.allDreams.collectAsStateWithLifecycle()
     val analyzeWithAiDefault by viewModel.analyzeWithAiDefault.collectAsStateWithLifecycle()
+    val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var searchQuery by remember { mutableStateOf("") }
@@ -656,6 +964,12 @@ fun DashboardScreen(
             ) {
                 Spacer(modifier = Modifier.height(24.dp))
 
+                UsageQuotaCard(
+                    usageQuota = usageQuota,
+                    onUpgradeClick = { navController.navigate(Routes.PAYWALL) }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
                 AnalyzeModeSettingsCard(
                     analyzeWithAi = analyzeWithAiDefault,
                     onAnalyzeWithAiChanged = viewModel::setAnalyzeWithAiDefault
@@ -671,7 +985,11 @@ fun DashboardScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                navController.navigate(Routes.PATTERN_ANALYSIS)
+                                if (usageQuota.isPro) {
+                                    navController.navigate(Routes.PATTERN_ANALYSIS)
+                                } else {
+                                    navController.navigate(Routes.PAYWALL)
+                                }
                             }
                             .testTag("pattern_analysis_cta_card"),
                         shape = RoundedCornerShape(24.dp),
@@ -704,24 +1022,40 @@ fun DashboardScreen(
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Subconscious Pattern Insights",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = NebulaLavender
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Subconscious Pattern Insights",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NebulaLavender
+                                    )
+                                    if (!usageQuota.isPro) {
+                                        ProFeatureBadge()
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Analyze recurring symbols, emotional threads, and archetypes across your journal.",
+                                    text = if (usageQuota.isPro) {
+                                        "Analyze recurring symbols, emotional threads, and archetypes across your journal."
+                                    } else {
+                                        "Unlock Pro to discover recurring symbols and archetypes across your journal."
+                                    },
                                     fontSize = 12.sp,
                                     color = TextSecondary,
                                     lineHeight = 16.sp
                                 )
                             }
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "View Patterns",
-                                tint = DreamTeal,
+                                imageVector = if (usageQuota.isPro) {
+                                    Icons.AutoMirrored.Filled.ArrowForward
+                                } else {
+                                    Icons.Default.Lock
+                                },
+                                contentDescription = if (usageQuota.isPro) "View Patterns" else "Pro feature",
+                                tint = if (usageQuota.isPro) DreamTeal else DreamGold,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -1519,6 +1853,7 @@ fun DetailScreen(
     val isSendingChat by viewModel.isSendingChatMessage.collectAsStateWithLifecycle()
     val audioPlayback by viewModel.audioPlaybackState.collectAsStateWithLifecycle()
     val analyzingDreamId by viewModel.analyzingDreamId.collectAsStateWithLifecycle()
+    val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
 
     var chatInputText by remember { mutableStateOf("") }
     var isEditingTitle by remember { mutableStateOf(false) }
@@ -1707,7 +2042,13 @@ fun DetailScreen(
                                     }
                                     // Regenerate Button Overlay
                                     IconButton(
-                                        onClick = { viewModel.regenerateDreamArtwork(currentDream.id) },
+                                        onClick = {
+                                            if (usageQuota.isPro) {
+                                                viewModel.regenerateDreamArtwork(currentDream.id)
+                                            } else {
+                                                navController.navigate(Routes.PAYWALL)
+                                            }
+                                        },
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
                                             .padding(8.dp)
@@ -1715,9 +2056,9 @@ fun DetailScreen(
                                             .size(36.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Regenerate Artwork",
-                                            tint = Color.White,
+                                            imageVector = if (usageQuota.isPro) Icons.Default.Refresh else Icons.Default.Lock,
+                                            contentDescription = if (usageQuota.isPro) "Regenerate Artwork" else "Pro feature",
+                                            tint = if (usageQuota.isPro) Color.White else DreamGold,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
@@ -1772,10 +2113,19 @@ fun DetailScreen(
                                             )
                                             Spacer(modifier = Modifier.height(12.dp))
                                             Button(
-                                                onClick = { viewModel.regenerateDreamArtwork(currentDream.id) },
+                                                onClick = {
+                                                    if (usageQuota.isPro) {
+                                                        viewModel.regenerateDreamArtwork(currentDream.id)
+                                                    } else {
+                                                        navController.navigate(Routes.PAYWALL)
+                                                    }
+                                                },
                                                 colors = ButtonDefaults.buttonColors(containerColor = DreamPurple)
                                             ) {
-                                                Text("Try Again", color = Color.White)
+                                                Text(
+                                                    if (usageQuota.isPro) "Try Again" else "Upgrade to Retry",
+                                                    color = Color.White
+                                                )
                                             }
                                         } else {
                                             Icon(
@@ -2334,6 +2684,10 @@ fun DetailScreen(
                                     fontWeight = FontWeight.Bold,
                                     color = DreamGold
                                 )
+                                if (!usageQuota.isPro) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    ProFeatureBadge()
+                                }
                                 Box(modifier = Modifier.weight(1f).height(1.dp).background(EtherealCardBorder))
                             }
                         }
@@ -2434,67 +2788,113 @@ fun DetailScreen(
                             .imePadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(EtherealCard, RoundedCornerShape(32.dp))
-                                .border(1.dp, EtherealCardBorder, RoundedCornerShape(32.dp))
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = chatInputText,
-                                onValueChange = { chatInputText = it },
-                                placeholder = { Text("Ask about a symbol...", color = TextSecondary, fontSize = 14.sp) },
+                        if (!usageQuota.isPro) {
+                            Card(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("chat_input"),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = NebulaLavender,
-                                    unfocusedTextColor = NebulaLavender,
-                                    focusedBorderColor = Color.Transparent,
-                                    unfocusedBorderColor = Color.Transparent,
-                                    focusedContainerColor = CosmicBackground,
-                                    unfocusedContainerColor = CosmicBackground
-                                ),
+                                    .fillMaxWidth()
+                                    .clickable { navController.navigate(Routes.PAYWALL) }
+                                    .testTag("chat_pro_lock_card"),
                                 shape = RoundedCornerShape(24.dp),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(onSend = {
-                                    if (chatInputText.isNotBlank()) {
-                                        viewModel.sendChatMessage(chatInputText)
-                                        chatInputText = ""
-                                        keyboardController?.hide()
-                                    }
-                                })
-                            )
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .shadow(6.dp, CircleShape, clip = false)
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(DreamPurple, DreamTeal)
-                                        ),
-                                        CircleShape
-                                    )
-                                    .clickable(enabled = chatInputText.isNotBlank()) {
-                                        viewModel.sendChatMessage(chatInputText)
-                                        chatInputText = ""
-                                        keyboardController?.hide()
-                                    }
-                                    .testTag("chat_send_button"),
-                                contentAlignment = Alignment.Center
+                                colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                                border = BorderStroke(1.dp, DreamGold.copy(alpha = 0.3f))
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Default.Send,
-                                    contentDescription = "Send Message",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = DreamGold,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Symbol chat is a Pro feature",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = NebulaLavender
+                                        )
+                                        Text(
+                                            text = "Tap to upgrade and ask about symbols in your dreams.",
+                                            fontSize = 11.sp,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                    Text(
+                                        text = "Upgrade",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DreamTeal
+                                    )
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(EtherealCard, RoundedCornerShape(32.dp))
+                                    .border(1.dp, EtherealCardBorder, RoundedCornerShape(32.dp))
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = chatInputText,
+                                    onValueChange = { chatInputText = it },
+                                    placeholder = { Text("Ask about a symbol...", color = TextSecondary, fontSize = 14.sp) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("chat_input"),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = NebulaLavender,
+                                        unfocusedTextColor = NebulaLavender,
+                                        focusedBorderColor = Color.Transparent,
+                                        unfocusedBorderColor = Color.Transparent,
+                                        focusedContainerColor = CosmicBackground,
+                                        unfocusedContainerColor = CosmicBackground
+                                    ),
+                                    shape = RoundedCornerShape(24.dp),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                    keyboardActions = KeyboardActions(onSend = {
+                                        if (chatInputText.isNotBlank()) {
+                                            viewModel.sendChatMessage(chatInputText)
+                                            chatInputText = ""
+                                            keyboardController?.hide()
+                                        }
+                                    })
                                 )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .shadow(6.dp, CircleShape, clip = false)
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(DreamPurple, DreamTeal)
+                                            ),
+                                            CircleShape
+                                        )
+                                        .clickable(enabled = chatInputText.isNotBlank()) {
+                                            viewModel.sendChatMessage(chatInputText)
+                                            chatInputText = ""
+                                            keyboardController?.hide()
+                                        }
+                                        .testTag("chat_send_button"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Default.Send,
+                                        contentDescription = "Send Message",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -2693,15 +3093,16 @@ fun PatternAnalysisScreen(
 ) {
     val analysisState by viewModel.patternAnalysisState.collectAsStateWithLifecycle()
     val dreams by viewModel.allDreams.collectAsStateWithLifecycle()
+    val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
 
     // Load cached report on launch
     LaunchedEffect(Unit) {
         viewModel.loadPatternAnalysis()
     }
 
-    // Trigger analysis if Idle and we have recorded dreams
-    LaunchedEffect(analysisState, dreams) {
-        if (analysisState is PatternAnalysisState.Idle && dreams.isNotEmpty()) {
+    // Trigger analysis if Idle and we have recorded dreams (Pro only)
+    LaunchedEffect(analysisState, dreams, usageQuota.isPro) {
+        if (usageQuota.isPro && analysisState is PatternAnalysisState.Idle && dreams.isNotEmpty()) {
             viewModel.generatePatternAnalysis()
         }
     }
@@ -2815,6 +3216,56 @@ fun PatternAnalysisScreen(
                                     textAlign = TextAlign.Center,
                                     lineHeight = 18.sp
                                 )
+                            }
+                        }
+                    }
+                } else if (!usageQuota.isPro) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().testTag("pattern_analysis_pro_lock_card"),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                            border = BorderStroke(1.dp, DreamGold.copy(alpha = 0.4f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(28.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = DreamGold,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Pattern Insights",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NebulaLavender
+                                    )
+                                    ProFeatureBadge()
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Cross-dream pattern analysis is a Pro feature. Upgrade to discover recurring symbols, emotional threads, and archetypes across your journal.",
+                                    fontSize = 13.sp,
+                                    color = TextSecondary,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 18.sp
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Button(
+                                    onClick = { navController.navigate(Routes.PAYWALL) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = DreamPurple),
+                                    modifier = Modifier.testTag("pattern_analysis_upgrade_button")
+                                ) {
+                                    Text("Upgrade to Pro", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
