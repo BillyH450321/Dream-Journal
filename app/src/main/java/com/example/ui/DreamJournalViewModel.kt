@@ -61,6 +61,11 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val TAG = "DreamJournalViewModel"
     private val context = application.applicationContext
 
+    companion object {
+        const val VOICE_DEFERRED_PLACEHOLDER =
+            "Voice recording saved — tap Analyze Dream to transcribe and interpret."
+    }
+
     private val repository: DreamRepository
     private val apiKeyStore = ApiKeyStore(context)
     val allDreams: StateFlow<List<Dream>>
@@ -129,6 +134,9 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val _audioPlaybackState = MutableStateFlow(AudioPlaybackState())
     val audioPlaybackState: StateFlow<AudioPlaybackState> = _audioPlaybackState.asStateFlow()
 
+    private val _analyzingDreamId = MutableStateFlow<Long?>(null)
+    val analyzingDreamId: StateFlow<Long?> = _analyzingDreamId.asStateFlow()
+
     // --- Actions ---
 
     fun saveApiKey(key: String) {
@@ -173,12 +181,12 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         )
     }
 
-    fun stopVoiceRecording() {
+    fun stopVoiceRecording(analyzeNow: Boolean = false) {
         stopTimer()
         val file = audioRecorder.stopRecording()
         if (file != null && file.exists() && file.length() > 0) {
             _recordingState.value = RecordingState.Processing("Saving voice recording...")
-            processRecordedAudio(file)
+            processRecordedAudio(file, analyzeNow = analyzeNow)
         } else {
             _recordingState.value = RecordingState.Error("No audio was recorded.")
         }
@@ -330,19 +338,91 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     /**
      * Manually creates a dream with user entered text, skipping audio transcription
      */
-    fun processManualDreamText(text: String) {
+    fun processManualDreamText(text: String, analyzeNow: Boolean = false) {
         if (text.isBlank()) return
         viewModelScope.launch {
             _recordingState.value = RecordingState.Processing("Writing dream entry...")
             try {
-                val newDream = Dream(rawText = text)
-                val id = repository.insertDream(newDream)
-                
-                // Execute image generation & interpretation
-                runImageAndInterpretationPipeline(id, text)
+                val id = repository.insertDream(
+                    Dream(
+                        rawText = text.trim(),
+                        analysisStatus = if (analyzeNow) "pending" else "deferred",
+                        artworkStatus = if (analyzeNow) "pending" else "deferred"
+                    )
+                )
+
+                if (analyzeNow) {
+                    runImageAndInterpretationPipeline(id, text.trim(), updateRecordingState = true)
+                } else {
+                    _recordingState.value = RecordingState.Success(id)
+                    _selectedDreamId.value = id
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing manual dream text", e)
                 _recordingState.value = RecordingState.Error("Failed to save entry: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun analyzeDream(dreamId: Long) {
+        viewModelScope.launch {
+            val dream = allDreams.value.find { it.id == dreamId } ?: return@launch
+            if (dream.analysisStatus == "pending" || dream.analysisStatus == "complete") return@launch
+
+            _analyzingDreamId.value = dreamId
+            repository.updateDream(
+                dream.copy(analysisStatus = "pending", artworkStatus = "pending")
+            )
+
+            try {
+                var dreamText = dream.rawText
+
+                if (!dream.audioPath.isNullOrBlank() && dream.rawText == VOICE_DEFERRED_PLACEHOLDER) {
+                    val audioFile = File(dream.audioPath)
+                    if (!audioFile.exists()) {
+                        repository.updateDream(
+                            dream.copy(analysisStatus = "failed", artworkStatus = "failed")
+                        )
+                        _analyzingDreamId.value = null
+                        return@launch
+                    }
+
+                    val base64Audio = withContext(Dispatchers.IO) {
+                        Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP)
+                    }
+                    val transcription = GeminiClient.transcribeAudio(base64Audio, "audio/mp4")
+                    if (transcription.contains("API Key Error") ||
+                        transcription.contains("Transcription failed") ||
+                        transcription.contains("rate limit", ignoreCase = true) ||
+                        transcription.contains("HTTP 429")
+                    ) {
+                        repository.updateDream(
+                            dream.copy(analysisStatus = "failed", artworkStatus = "failed")
+                        )
+                        _analyzingDreamId.value = null
+                        return@launch
+                    }
+                    dreamText = transcription
+                    repository.updateDream(
+                        dream.copy(rawText = transcription, analysisStatus = "pending")
+                    )
+                }
+
+                runImageAndInterpretationPipeline(
+                    id = dreamId,
+                    transcription = dreamText,
+                    updateRecordingState = false
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to analyze dream", e)
+                val current = allDreams.value.find { it.id == dreamId }
+                if (current != null) {
+                    repository.updateDream(
+                        current.copy(analysisStatus = "failed", artworkStatus = "failed")
+                    )
+                }
+            } finally {
+                _analyzingDreamId.value = null
             }
         }
     }
@@ -403,18 +483,37 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         timerJob = null
     }
 
-    private fun processRecordedAudio(file: File) {
+    private fun processRecordedAudio(file: File, analyzeNow: Boolean) {
         viewModelScope.launch {
             try {
-                _recordingState.value = RecordingState.Processing("Transcribing dream recording...")
-
-                // 1. Load audio bytes and convert to Base64
-                val base64Audio = withContext(Dispatchers.IO) {
-                    val bytes = file.readBytes()
-                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                val stableAudioFile = withContext(Dispatchers.IO) {
+                    val dest = File(context.filesDir, "dream_audio_${System.currentTimeMillis()}.m4a")
+                    file.copyTo(dest, overwrite = true)
+                    file.delete()
+                    dest
                 }
 
-                // 2. Transcribe using Gemini API
+                if (!analyzeNow) {
+                    val id = repository.insertDream(
+                        Dream(
+                            rawText = VOICE_DEFERRED_PLACEHOLDER,
+                            audioPath = stableAudioFile.absolutePath,
+                            title = "Voice Dream",
+                            analysisStatus = "deferred",
+                            artworkStatus = "deferred"
+                        )
+                    )
+                    _recordingState.value = RecordingState.Success(id)
+                    _selectedDreamId.value = id
+                    return@launch
+                }
+
+                _recordingState.value = RecordingState.Processing("Transcribing dream recording...")
+
+                val base64Audio = withContext(Dispatchers.IO) {
+                    Base64.encodeToString(stableAudioFile.readBytes(), Base64.NO_WRAP)
+                }
+
                 val transcription = GeminiClient.transcribeAudio(base64Audio, "audio/mp4")
 
                 if (transcription.contains("API Key Error") ||
@@ -426,49 +525,57 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                     return@launch
                 }
 
-                _recordingState.value = RecordingState.Processing("Saving entry...")
-
-                // 3. Copy recorded file from cache to a stable location inside app files directory
-                val stableAudioFile = withContext(Dispatchers.IO) {
-                    val dest = File(context.filesDir, "dream_audio_${System.currentTimeMillis()}.m4a")
-                    file.copyTo(dest, overwrite = true)
-                    file.delete() // clean up cache file
-                    dest
-                }
-
-                // 4. Create initial Dream record in database
-                val dream = Dream(
-                    rawText = transcription,
-                    audioPath = stableAudioFile.absolutePath
+                val id = repository.insertDream(
+                    Dream(
+                        rawText = transcription,
+                        audioPath = stableAudioFile.absolutePath,
+                        analysisStatus = "pending",
+                        artworkStatus = "pending"
+                    )
                 )
-                val id = repository.insertDream(dream)
 
-                // 5. Trigger the surreal image + archetypal interpretation pipeline
-                runImageAndInterpretationPipeline(id, transcription)
+                runImageAndInterpretationPipeline(id, transcription, updateRecordingState = true)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to process audio recording", e)
-                _recordingState.value = RecordingState.Error("Failed to transcribe dream: ${e.localizedMessage}")
+                _recordingState.value = RecordingState.Error("Failed to save dream: ${e.localizedMessage}")
             }
         }
     }
 
-    private suspend fun runImageAndInterpretationPipeline(id: Long, transcription: String) {
+    private suspend fun runImageAndInterpretationPipeline(
+        id: Long,
+        transcription: String,
+        updateRecordingState: Boolean = true
+    ) {
         try {
-            _recordingState.value = RecordingState.Processing("Analyzing archetypes & symbols...")
+            if (updateRecordingState) {
+                _recordingState.value = RecordingState.Processing("Analyzing archetypes & symbols...")
+            }
 
             var loadedDream = repository.allDreams.first().find { it.id == id }
             if (loadedDream != null) {
-                repository.updateDream(loadedDream.copy(artworkStatus = "pending"))
+                repository.updateDream(
+                    loadedDream.copy(analysisStatus = "pending", artworkStatus = "pending")
+                )
             }
 
-            // Run AI steps sequentially with spacing to avoid HTTP 429 rate limits.
             val interpretation = GeminiClient.interpretDream(transcription)
             if (interpretation.contains("HTTP 429") || interpretation.contains("rate limit", ignoreCase = true)) {
-                _recordingState.value = RecordingState.Error(interpretation)
+                if (updateRecordingState) {
+                    _recordingState.value = RecordingState.Error(interpretation)
+                }
+                loadedDream = repository.allDreams.first().find { it.id == id }
+                if (loadedDream != null) {
+                    repository.updateDream(
+                        loadedDream.copy(analysisStatus = "failed", artworkStatus = "failed")
+                    )
+                }
                 return
             }
 
-            _recordingState.value = RecordingState.Processing("Generating title & tags...")
+            if (updateRecordingState) {
+                _recordingState.value = RecordingState.Processing("Generating title & tags...")
+            }
             val metadata = GeminiClient.suggestDreamMetadata(transcription)
 
             val firstLines = interpretation.lines().filter { it.isNotBlank() }
@@ -481,15 +588,17 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                         title = metadata.title,
                         emotionalTheme = emotionalTheme,
                         structuredInterpretation = interpretation,
-                        tags = metadata.tags
+                        tags = metadata.tags,
+                        analysisStatus = "complete"
                     )
                 )
             }
 
-            _recordingState.value = RecordingState.Success(id)
-            _selectedDreamId.value = id
+            if (updateRecordingState) {
+                _recordingState.value = RecordingState.Success(id)
+                _selectedDreamId.value = id
+            }
 
-            // Generate artwork last in the background so voice entry can finish sooner.
             viewModelScope.launch {
                 try {
                     delay(5_000)
@@ -521,9 +630,17 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
             }
         } catch (e: Exception) {
             Log.e(TAG, "Dream analysis pipeline failed", e)
-            _recordingState.value = RecordingState.Error(
-                "Dream analysis failed: ${e.localizedMessage ?: "Unknown error"}"
-            )
+            val loadedDream = repository.allDreams.first().find { it.id == id }
+            if (loadedDream != null) {
+                repository.updateDream(
+                    loadedDream.copy(analysisStatus = "failed", artworkStatus = "failed")
+                )
+            }
+            if (updateRecordingState) {
+                _recordingState.value = RecordingState.Error(
+                    "Dream analysis failed: ${e.localizedMessage ?: "Unknown error"}"
+                )
+            }
         }
     }
 

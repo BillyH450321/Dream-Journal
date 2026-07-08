@@ -15,7 +15,8 @@ data class Dream(
     val structuredInterpretation: String? = null,
     val audioPath: String? = null,
     val tags: String = "",
-    val artworkStatus: String = "complete",
+    val analysisStatus: String = "deferred",
+    val artworkStatus: String = "deferred",
     val artworkFallbackUsed: Boolean = false
 )
 
@@ -63,7 +64,7 @@ interface DreamDao {
     suspend fun insertChatMessage(message: ChatMessage): Long
 }
 
-@Database(entities = [Dream::class, ChatMessage::class], version = 4, exportSchema = false)
+@Database(entities = [Dream::class, ChatMessage::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dreamDao(): DreamDao
 

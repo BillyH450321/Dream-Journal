@@ -68,7 +68,14 @@ import java.util.*
 import kotlin.math.roundToInt
 
 private fun Dream.displayTitle(): String =
-    title?.takeIf { it.isNotBlank() } ?: rawText.lineSequence().firstOrNull()?.take(60)?.trim().orEmpty().ifBlank { "Untitled Dream" }
+    title?.takeIf { it.isNotBlank() && it != "Voice Dream" }
+        ?: rawText.lineSequence().firstOrNull()?.take(60)?.trim().orEmpty().ifBlank { "Untitled Dream" }
+
+private fun Dream.needsAnalysis(): Boolean =
+    analysisStatus == "deferred" || analysisStatus == "failed"
+
+private fun Dream.isAnalysisInProgress(analyzingDreamId: Long?): Boolean =
+    analysisStatus == "pending" || analyzingDreamId == id
 
 private fun formatAudioTime(ms: Int): String {
     val totalSeconds = (ms / 1000).coerceAtLeast(0)
@@ -1023,6 +1030,15 @@ fun DreamListItem(
                         )
                     }
                 }
+                if (dream.needsAnalysis()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (dream.analysisStatus == "failed") "Analysis failed — tap to retry" else "Awaiting AI analysis",
+                        fontSize = 11.sp,
+                        color = DreamGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 if (dream.tags.isNotBlank()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
@@ -1077,6 +1093,7 @@ fun RecorderScreen(
     val recordingDuration by viewModel.recordingDuration.collectAsStateWithLifecycle()
     var isManualTextMode by remember { mutableStateOf(false) }
     var typedDreamText by remember { mutableStateOf("") }
+    var analyzeWithAiNow by remember { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition()
     val pulseScale by infiniteTransition.animateFloat(
@@ -1202,14 +1219,53 @@ fun RecorderScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = if (isManualTextMode)
-                            "Type your dream details freely. AI will visualize and analyze symbols."
-                        else "Speak while the memories are fresh. Audio will be transcribed and analyzed.",
+                        text = if (analyzeWithAiNow) {
+                            if (isManualTextMode)
+                                "Type your dream — AI will analyze, tag, and generate artwork."
+                            else
+                                "Record your dream — AI will transcribe and analyze when you stop."
+                        } else {
+                            "Save now, analyze later. No AI calls until you tap Analyze Dream."
+                        },
                         fontSize = 13.sp,
                         color = TextSecondary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                        border = BorderStroke(1.dp, EtherealCardBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (analyzeWithAiNow) "Analyze with AI now" else "Analyze later",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (analyzeWithAiNow) DreamTeal else DreamGold
+                                )
+                                Text(
+                                    text = if (analyzeWithAiNow) "Uses Gemini API immediately" else "Recommended — avoids rate limits",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = analyzeWithAiNow,
+                                onCheckedChange = { analyzeWithAiNow = it },
+                                modifier = Modifier.testTag("analyze_with_ai_switch")
+                            )
+                        }
+                    }
                 }
 
                 if (!isManualTextMode) {
@@ -1251,7 +1307,7 @@ fun RecorderScreen(
                                     )
                                     .clickable {
                                         if (recordingState is RecordingState.Recording) {
-                                            viewModel.stopVoiceRecording()
+                                            viewModel.stopVoiceRecording(analyzeNow = analyzeWithAiNow)
                                         } else {
                                             viewModel.startVoiceRecording()
                                         }
@@ -1317,7 +1373,10 @@ fun RecorderScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = {
-                                viewModel.processManualDreamText(typedDreamText)
+                                viewModel.processManualDreamText(
+                                    typedDreamText,
+                                    analyzeNow = analyzeWithAiNow
+                                )
                             },
                             enabled = typedDreamText.isNotBlank(),
                             modifier = Modifier
@@ -1325,13 +1384,13 @@ fun RecorderScreen(
                                 .height(52.dp)
                                 .testTag("submit_button"),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = DreamPurple,
+                                containerColor = if (analyzeWithAiNow) DreamPurple else DreamGold,
                                 disabledContainerColor = EtherealCardBorder
                             ),
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             Text(
-                                "Save & Decode Dream",
+                                if (analyzeWithAiNow) "Save & Analyze Now" else "Save for Later",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CosmicBackground
@@ -1382,6 +1441,7 @@ fun DetailScreen(
     val chatHistory by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isSendingChat by viewModel.isSendingChatMessage.collectAsStateWithLifecycle()
     val audioPlayback by viewModel.audioPlaybackState.collectAsStateWithLifecycle()
+    val analyzingDreamId by viewModel.analyzingDreamId.collectAsStateWithLifecycle()
 
     var chatInputText by remember { mutableStateOf("") }
     var isEditingTitle by remember { mutableStateOf(false) }
@@ -1661,6 +1721,63 @@ fun DetailScreen(
                         }
                     }
 
+                    // 2.5 Analyze Later CTA
+                    if (currentDream.needsAnalysis() || currentDream.isAnalysisInProgress(analyzingDreamId)) {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                                    .testTag("analyze_dream_card"),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                                border = BorderStroke(1.dp, DreamGold.copy(alpha = 0.5f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text(
+                                        text = "Ready for AI Analysis",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DreamGold
+                                    )
+                                    Text(
+                                        text = if (currentDream.analysisStatus == "failed")
+                                            "Last analysis failed (rate limit or server busy). Wait a minute, then try again."
+                                        else
+                                            "This dream was saved without using the API. Tap below when you're ready for transcription, interpretation, tags, and artwork.",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary,
+                                        lineHeight = 18.sp
+                                    )
+                                    Button(
+                                        onClick = { viewModel.analyzeDream(currentDream.id) },
+                                        enabled = !currentDream.isAnalysisInProgress(analyzingDreamId),
+                                        colors = ButtonDefaults.buttonColors(containerColor = DreamPurple),
+                                        modifier = Modifier.testTag("analyze_dream_button")
+                                    ) {
+                                        if (currentDream.isAnalysisInProgress(analyzingDreamId)) {
+                                            CircularProgressIndicator(
+                                                color = Color.White,
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text("Analyzing...", color = Color.White)
+                                        } else {
+                                            Text(
+                                                if (currentDream.analysisStatus == "failed") "Retry Analysis" else "Analyze Dream",
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // 3. Dream Title Section
                     item {
                         Card(
@@ -1742,6 +1859,14 @@ fun DetailScreen(
                                             Text("Save", color = Color.White)
                                         }
                                     }
+                                } else if (currentDream.needsAnalysis()) {
+                                    Text(
+                                        text = "Title will be generated after analysis",
+                                        fontSize = 16.sp,
+                                        fontFamily = FontFamily.Serif,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                        color = TextSecondary
+                                    )
                                 } else if (currentDream.title.isNullOrBlank()) {
                                     Text(
                                         text = "Generating title…",
@@ -2070,7 +2195,22 @@ fun DetailScreen(
                             }
 
                             val interpretationText = currentDream.structuredInterpretation
-                            if (interpretationText != null) {
+                            if (currentDream.needsAnalysis()) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(28.dp),
+                                    colors = CardDefaults.cardColors(containerColor = EtherealCard.copy(alpha = 0.6f)),
+                                    border = BorderStroke(1.dp, EtherealCardBorder)
+                                ) {
+                                    Text(
+                                        text = "Psychological analysis will appear here after you tap Analyze Dream.",
+                                        fontSize = 13.sp,
+                                        color = TextSecondary,
+                                        lineHeight = 18.sp,
+                                        modifier = Modifier.padding(24.dp)
+                                    )
+                                }
+                            } else if (interpretationText != null) {
                                 StyledMarkdownCard(interpretationText)
                             } else {
                                 Card(
@@ -2123,7 +2263,27 @@ fun DetailScreen(
                     }
 
                     // 6. Interactive Chat Bubble History
-                    if (chatHistory.isEmpty()) {
+                    if (currentDream.needsAnalysis()) {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp),
+                                shape = RoundedCornerShape(28.dp),
+                                colors = CardDefaults.cardColors(containerColor = EtherealCard.copy(alpha = 0.5f)),
+                                border = BorderStroke(1.dp, EtherealCardBorder)
+                            ) {
+                                Text(
+                                    text = "Symbol chat unlocks after you analyze this dream.",
+                                    fontSize = 13.sp,
+                                    color = TextSecondary,
+                                    lineHeight = 18.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        }
+                    } else if (chatHistory.isEmpty()) {
                         item {
                             Card(
                                 modifier = Modifier
@@ -2188,76 +2348,77 @@ fun DetailScreen(
                     }
                 }
 
-                // Exquisite rounded input area exactly as footer design specs
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(CosmicBackground)
-                        .navigationBarsPadding()
-                        .imePadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    Row(
+                if (!currentDream.needsAnalysis()) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(EtherealCard, RoundedCornerShape(32.dp))
-                            .border(1.dp, EtherealCardBorder, RoundedCornerShape(32.dp))
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .background(CosmicBackground)
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
-                        OutlinedTextField(
-                            value = chatInputText,
-                            onValueChange = { chatInputText = it },
-                            placeholder = { Text("Ask about a symbol...", color = TextSecondary, fontSize = 14.sp) },
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .testTag("chat_input"),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = NebulaLavender,
-                                unfocusedTextColor = NebulaLavender,
-                                focusedBorderColor = Color.Transparent,
-                                unfocusedBorderColor = Color.Transparent,
-                                focusedContainerColor = CosmicBackground,
-                                unfocusedContainerColor = CosmicBackground
-                            ),
-                            shape = RoundedCornerShape(24.dp),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = {
-                                if (chatInputText.isNotBlank()) {
-                                    viewModel.sendChatMessage(chatInputText)
-                                    chatInputText = ""
-                                    keyboardController?.hide()
-                                }
-                            })
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .shadow(6.dp, CircleShape, clip = false)
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(DreamPurple, DreamTeal)
-                                    ),
-                                    CircleShape
-                                )
-                                .clickable(enabled = chatInputText.isNotBlank()) {
-                                    viewModel.sendChatMessage(chatInputText)
-                                    chatInputText = ""
-                                    keyboardController?.hide()
-                                }
-                                .testTag("chat_send_button"),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .background(EtherealCard, RoundedCornerShape(32.dp))
+                                .border(1.dp, EtherealCardBorder, RoundedCornerShape(32.dp))
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Default.Send,
-                                contentDescription = "Send Message",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                            OutlinedTextField(
+                                value = chatInputText,
+                                onValueChange = { chatInputText = it },
+                                placeholder = { Text("Ask about a symbol...", color = TextSecondary, fontSize = 14.sp) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("chat_input"),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = NebulaLavender,
+                                    unfocusedTextColor = NebulaLavender,
+                                    focusedBorderColor = Color.Transparent,
+                                    unfocusedBorderColor = Color.Transparent,
+                                    focusedContainerColor = CosmicBackground,
+                                    unfocusedContainerColor = CosmicBackground
+                                ),
+                                shape = RoundedCornerShape(24.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = {
+                                    if (chatInputText.isNotBlank()) {
+                                        viewModel.sendChatMessage(chatInputText)
+                                        chatInputText = ""
+                                        keyboardController?.hide()
+                                    }
+                                })
                             )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .shadow(6.dp, CircleShape, clip = false)
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(DreamPurple, DreamTeal)
+                                        ),
+                                        CircleShape
+                                    )
+                                    .clickable(enabled = chatInputText.isNotBlank()) {
+                                        viewModel.sendChatMessage(chatInputText)
+                                        chatInputText = ""
+                                        keyboardController?.hide()
+                                    }
+                                    .testTag("chat_send_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Default.Send,
+                                    contentDescription = "Send Message",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
