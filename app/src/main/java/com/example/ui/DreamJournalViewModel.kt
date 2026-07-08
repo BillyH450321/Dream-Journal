@@ -6,10 +6,12 @@ import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.ApiKeyStore
 import com.example.data.AppDatabase
 import com.example.data.ChatMessage
 import com.example.data.Dream
 import com.example.data.DreamRepository
+import com.example.network.ApiKeyProvider
 import com.example.network.Content
 import com.example.network.GeminiClient
 import com.example.network.Part
@@ -41,6 +43,12 @@ sealed interface PatternAnalysisState {
     data class Error(val message: String) : PatternAnalysisState
 }
 
+sealed interface ApiTestState {
+    object Idle : ApiTestState
+    object Loading : ApiTestState
+    data class Result(val message: String, val success: Boolean) : ApiTestState
+}
+
 data class AudioPlaybackState(
     val dreamId: Long? = null,
     val isPlaying: Boolean = false,
@@ -54,7 +62,14 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val context = application.applicationContext
 
     private val repository: DreamRepository
+    private val apiKeyStore = ApiKeyStore(context)
     val allDreams: StateFlow<List<Dream>>
+
+    private val _storedApiKey = MutableStateFlow("")
+    val storedApiKey: StateFlow<String> = _storedApiKey.asStateFlow()
+
+    private val _apiTestState = MutableStateFlow<ApiTestState>(ApiTestState.Idle)
+    val apiTestState: StateFlow<ApiTestState> = _apiTestState.asStateFlow()
 
     init {
         val database = AppDatabase.getDatabase(context)
@@ -65,6 +80,13 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                 started = SharingStarted.WhileSubscribed(5000),
                 initialValue = emptyList()
             )
+
+        viewModelScope.launch {
+            apiKeyStore.apiKey.collect { key ->
+                _storedApiKey.value = key
+                ApiKeyProvider.runtimeKey = key
+            }
+        }
     }
 
     // --- State Variables ---
@@ -108,6 +130,26 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     val audioPlaybackState: StateFlow<AudioPlaybackState> = _audioPlaybackState.asStateFlow()
 
     // --- Actions ---
+
+    fun saveApiKey(key: String) {
+        viewModelScope.launch {
+            apiKeyStore.saveApiKey(key)
+            ApiKeyProvider.runtimeKey = key.trim()
+        }
+    }
+
+    fun testApiConnection() {
+        viewModelScope.launch {
+            _apiTestState.value = ApiTestState.Loading
+            val result = GeminiClient.testConnection()
+            val success = result.startsWith("Connection successful")
+            _apiTestState.value = ApiTestState.Result(result, success)
+        }
+    }
+
+    fun resetApiTestState() {
+        _apiTestState.value = ApiTestState.Idle
+    }
 
     fun selectDream(dreamId: Long?) {
         if (_selectedDreamId.value != dreamId) {

@@ -111,8 +111,9 @@ object GeminiClient {
     private const val MAX_INLINE_AUDIO_BASE64_CHARS = 20_000_000
 
     private val TEXT_MODELS = listOf(
+        "gemini-2.5-flash",
         "gemini-3.5-flash",
-        "gemini-2.5-flash"
+        "gemini-2.5-flash-lite"
     )
 
     private val IMAGE_MODELS = listOf(
@@ -159,6 +160,8 @@ object GeminiClient {
                     return service.generateContent(model, apiKey, request)
                 } catch (e: HttpException) {
                     lastError = e
+                    val errorBody = e.response()?.errorBody()?.string()
+                    Log.e(TAG, "Model $model HTTP ${e.code()}: $errorBody")
                     val retryable = e.code() in listOf(429, 500, 502, 503, 504)
                     if (retryable && attempt < maxRetriesPerModel - 1) {
                         val delayMs = 1500L * (attempt + 1) * (attempt + 1)
@@ -180,6 +183,38 @@ object GeminiClient {
         throw lastError ?: IllegalStateException("All Gemini models failed")
     }
 
+    private fun resolveApiKey(): String? {
+        val apiKey = ApiKeyProvider.resolve()
+        return when {
+            apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY" -> null
+            else -> apiKey
+        }
+    }
+
+    suspend fun testConnection(): String {
+        val apiKey = resolveApiKey()
+            ?: return "No API key configured. Add your Gemini API key in Settings."
+
+        val request = GenerateContentRequest(
+            contents = listOf(
+                Content(parts = listOf(Part(text = "Reply with exactly the word OK.")))
+            )
+        )
+
+        return try {
+            val response = generateContentWithRetry(apiKey, request, maxRetriesPerModel = 2)
+            val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+            if (text.isNullOrBlank()) {
+                "Connected, but Gemini returned an empty response."
+            } else {
+                "Connection successful. Gemini replied: $text"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "API connection test failed", e)
+            formatApiError(e, "connection test")
+        }
+    }
+
     private fun formatApiError(e: Exception, action: String = "request"): String {
         if (e is HttpException) {
             return when (e.code()) {
@@ -196,10 +231,10 @@ object GeminiClient {
      * Transcribes audio using Gemini multimodal models.
      */
     suspend fun transcribeAudio(audioBytesBase64: String, mimeType: String): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
             Log.e(TAG, "Gemini API key is not set or is placeholder")
-            return "API Key Error: Please set your GEMINI_API_KEY in the Secrets panel."
+            return "API Key Error: Add your Gemini API key in Settings or the .env file, then rebuild."
         }
 
         if (audioBytesBase64.length > MAX_INLINE_AUDIO_BASE64_CHARS) {
@@ -240,8 +275,8 @@ object GeminiClient {
      * Stage A: Extracts core elements from the dream for the image prompt.
      */
     private suspend fun extractDreamTheme(dreamText: String, soften: Boolean = false): DreamThemeExtraction {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
             return DreamThemeExtraction("mystery", "abstract shapes", "dark and moody")
         }
 
@@ -304,8 +339,8 @@ object GeminiClient {
      * Generates a surrealist image representing the dream's emotional theme using a two-stage pipeline.
      */
     suspend fun generateSurrealImage(dreamText: String): ImageGenerationResult {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
             Log.e(TAG, "Gemini API key is not set or is placeholder")
             return ImageGenerationResult(null)
         }
@@ -327,7 +362,7 @@ object GeminiClient {
                 )
             )
 
-            val response = service.generateContent(imageModel, apiKey, request)
+            val response = generateContentWithRetry(apiKey, request, models = IMAGE_MODELS, maxRetriesPerModel = 2)
             val candidate = response.candidates?.firstOrNull()
             if (candidate?.finishReason == "IMAGE_SAFETY" || candidate?.finishReason == "SAFETY") {
                 return null // Blocked
@@ -373,9 +408,9 @@ object GeminiClient {
      * Generates a structured psychological and Jungian interpretation of the dream.
      */
     suspend fun interpretDream(dreamText: String): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return "API Key Error: Please set your GEMINI_API_KEY in the Secrets panel."
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
+            return "API Key Error: Add your Gemini API key in Settings or the .env file, then rebuild."
         }
 
         val systemPrompt = "You are a distinguished Jungian psychoanalyst and expert on dream archetypes, shadow work, and mythology. You provide highly intellectual, compassionate, and structured dream interpretations."
@@ -403,12 +438,12 @@ object GeminiClient {
         )
 
         return try {
-            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = generateContentWithRetry(apiKey, request)
             response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
                 ?: "No interpretation could be generated."
         } catch (e: Exception) {
             Log.e(TAG, "Dream interpretation failed", e)
-            "Interpretation failed: ${e.localizedMessage}"
+            "Interpretation failed: ${formatApiError(e, "interpretation")}"
         }
     }
 
@@ -420,9 +455,9 @@ object GeminiClient {
         history: List<Content>,
         newQuestion: String
     ): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return "API Key Error: Please set your GEMINI_API_KEY in the Secrets panel."
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
+            return "API Key Error: Add your Gemini API key in Settings or the .env file, then rebuild."
         }
 
         val systemPrompt = """
@@ -442,12 +477,12 @@ object GeminiClient {
         )
 
         return try {
-            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = generateContentWithRetry(apiKey, request)
             response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
                 ?: "I could not analyze that symbol."
         } catch (e: Exception) {
             Log.e(TAG, "Follow up question failed", e)
-            "Error: ${e.localizedMessage}"
+            formatApiError(e, "chat")
         }
     }
 
@@ -455,9 +490,9 @@ object GeminiClient {
      * Analyzes multiple dreams to identify recurring themes, symbols, emotional patterns, and archetypal presences.
      */
     suspend fun analyzeDreamPatterns(dreamsList: List<String>): String {
-        val apiKey = com.example.BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return "API Key Error: Please set your GEMINI_API_KEY in the Secrets panel."
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
+            return "API Key Error: Add your Gemini API key in Settings or the .env file, then rebuild."
         }
         if (dreamsList.isEmpty()) {
             return "No dreams recorded yet to analyze. Please log some dreams first!"
@@ -500,12 +535,12 @@ object GeminiClient {
         )
 
         return try {
-            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = generateContentWithRetry(apiKey, request)
             response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
                 ?: "Could not generate dream pattern analysis."
         } catch (e: Exception) {
             Log.e(TAG, "Dream pattern analysis failed", e)
-            "Analysis failed: ${e.localizedMessage}"
+            "Analysis failed: ${formatApiError(e, "pattern analysis")}"
         }
     }
 
@@ -513,8 +548,8 @@ object GeminiClient {
      * Generates a short, evocative title for a dream entry.
      */
     suspend fun generateDreamTitle(dreamText: String): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
             return fallbackDreamTitle(dreamText)
         }
 
@@ -532,7 +567,7 @@ object GeminiClient {
         )
 
         return try {
-            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = generateContentWithRetry(apiKey, request)
             val title = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?.trim()
                 ?.removeSurrounding("\"")
@@ -558,8 +593,8 @@ object GeminiClient {
      * Suggests a list of 3-5 lowercase, comma-separated tags representing core themes, symbols, or emotions in a dream.
      */
     suspend fun suggestDreamTags(dreamText: String): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
             Log.e(TAG, "Gemini API key is not set or is placeholder")
             return "dream"
         }
@@ -577,7 +612,7 @@ object GeminiClient {
         )
 
         return try {
-            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = generateContentWithRetry(apiKey, request)
             val tags = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()?.lowercase() ?: "dream"
             // Clean up common AI markdown artifacts like backticks
             tags.replace("`", "").replace(" ", "")
