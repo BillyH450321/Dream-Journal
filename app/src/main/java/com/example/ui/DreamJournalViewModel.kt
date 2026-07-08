@@ -417,7 +417,11 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                 // 2. Transcribe using Gemini API
                 val transcription = GeminiClient.transcribeAudio(base64Audio, "audio/mp4")
 
-                if (transcription.contains("API Key Error") || transcription.contains("Transcription failed")) {
+                if (transcription.contains("API Key Error") ||
+                    transcription.contains("Transcription failed") ||
+                    transcription.contains("rate limit", ignoreCase = true) ||
+                    transcription.contains("HTTP 429")
+                ) {
                     _recordingState.value = RecordingState.Error(transcription)
                     return@launch
                 }
@@ -449,70 +453,78 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     }
 
     private suspend fun runImageAndInterpretationPipeline(id: Long, transcription: String) {
-        _recordingState.value = RecordingState.Processing("Analyzing archetypes & symbols...")
-        
-        // Mark artwork as pending
-        var loadedDream = repository.allDreams.first().find { it.id == id }
-        if (loadedDream != null) {
-            repository.updateDream(loadedDream.copy(artworkStatus = "pending"))
-        }
+        try {
+            _recordingState.value = RecordingState.Processing("Analyzing archetypes & symbols...")
 
-        // Launch image generation in parallel
-        viewModelScope.launch {
-            try {
-                val result = GeminiClient.generateSurrealImage(transcription)
-                var savedImagePath: String? = null
-                if (result.imageBytesBase64 != null) {
-                    savedImagePath = withContext(Dispatchers.IO) {
-                        saveBase64ToLocalFile(result.imageBytesBase64, id)
+            var loadedDream = repository.allDreams.first().find { it.id == id }
+            if (loadedDream != null) {
+                repository.updateDream(loadedDream.copy(artworkStatus = "pending"))
+            }
+
+            // Run AI steps sequentially with spacing to avoid HTTP 429 rate limits.
+            val interpretation = GeminiClient.interpretDream(transcription)
+            if (interpretation.contains("HTTP 429") || interpretation.contains("rate limit", ignoreCase = true)) {
+                _recordingState.value = RecordingState.Error(interpretation)
+                return
+            }
+
+            _recordingState.value = RecordingState.Processing("Generating title & tags...")
+            val metadata = GeminiClient.suggestDreamMetadata(transcription)
+
+            val firstLines = interpretation.lines().filter { it.isNotBlank() }
+            val emotionalTheme = firstLines.firstOrNull { !it.startsWith("#") } ?: "Jungian Dream Analysis"
+
+            loadedDream = repository.allDreams.first().find { it.id == id }
+            if (loadedDream != null) {
+                repository.updateDream(
+                    loadedDream.copy(
+                        title = metadata.title,
+                        emotionalTheme = emotionalTheme,
+                        structuredInterpretation = interpretation,
+                        tags = metadata.tags
+                    )
+                )
+            }
+
+            _recordingState.value = RecordingState.Success(id)
+            _selectedDreamId.value = id
+
+            // Generate artwork last in the background so voice entry can finish sooner.
+            viewModelScope.launch {
+                try {
+                    delay(5_000)
+                    val result = GeminiClient.generateSurrealImage(transcription)
+                    var savedImagePath: String? = null
+                    if (result.imageBytesBase64 != null) {
+                        savedImagePath = withContext(Dispatchers.IO) {
+                            saveBase64ToLocalFile(result.imageBytesBase64, id)
+                        }
+                    }
+
+                    val currentDream = repository.allDreams.first().find { it.id == id }
+                    if (currentDream != null) {
+                        repository.updateDream(
+                            currentDream.copy(
+                                surrealImagePath = savedImagePath,
+                                artworkStatus = if (savedImagePath != null) "complete" else "failed",
+                                artworkFallbackUsed = result.fallbackUsed
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Image generation background task failed", e)
+                    val currentDream = repository.allDreams.first().find { it.id == id }
+                    if (currentDream != null) {
+                        repository.updateDream(currentDream.copy(artworkStatus = "failed"))
                     }
                 }
-                
-                val currentDream = repository.allDreams.first().find { it.id == id }
-                if (currentDream != null) {
-                    repository.updateDream(
-                        currentDream.copy(
-                            surrealImagePath = savedImagePath,
-                            artworkStatus = if (savedImagePath != null) "complete" else "failed",
-                            artworkFallbackUsed = result.fallbackUsed
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Image generation background task failed", e)
-                val currentDream = repository.allDreams.first().find { it.id == id }
-                if (currentDream != null) {
-                    repository.updateDream(currentDream.copy(artworkStatus = "failed"))
-                }
             }
-        }
-
-        // 2. Structured Jungian interpretation
-        val interpretation = GeminiClient.interpretDream(transcription)
-
-        // Extract a simple emotional theme or summary
-        val firstLines = interpretation.lines().filter { it.isNotBlank() }
-        val emotionalTheme = firstLines.firstOrNull { !it.startsWith("#") } ?: "Jungian Dream Analysis"
-
-        // Suggest dream tags and title from Gemini
-        val autoTags = GeminiClient.suggestDreamTags(transcription)
-        val dreamTitle = GeminiClient.generateDreamTitle(transcription)
-
-        // 3. Update database record with structured analysis
-        loadedDream = repository.allDreams.first().find { it.id == id }
-        if (loadedDream != null) {
-            val updatedDream = loadedDream.copy(
-                title = dreamTitle,
-                emotionalTheme = emotionalTheme,
-                structuredInterpretation = interpretation,
-                tags = autoTags
+        } catch (e: Exception) {
+            Log.e(TAG, "Dream analysis pipeline failed", e)
+            _recordingState.value = RecordingState.Error(
+                "Dream analysis failed: ${e.localizedMessage ?: "Unknown error"}"
             )
-            repository.updateDream(updatedDream)
         }
-
-        // Set state to Success, select the dream to view it immediately
-        _recordingState.value = RecordingState.Success(id)
-        _selectedDreamId.value = id
     }
 
     private fun saveBase64ToLocalFile(base64Str: String, dreamId: Long): String? {

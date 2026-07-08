@@ -8,6 +8,8 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -121,6 +123,10 @@ object GeminiClient {
         "gemini-2.5-flash-image"
     )
 
+    private const val MIN_REQUEST_INTERVAL_MS = 3_000L
+    private val requestThrottleMutex = Mutex()
+    private var lastRequestAtMs = 0L
+
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
@@ -146,6 +152,15 @@ object GeminiClient {
             .create(GeminiApiService::class.java)
     }
 
+    private suspend fun throttleRequests() {
+        requestThrottleMutex.withLock {
+            val now = System.currentTimeMillis()
+            val waitMs = MIN_REQUEST_INTERVAL_MS - (now - lastRequestAtMs)
+            if (waitMs > 0) delay(waitMs)
+            lastRequestAtMs = System.currentTimeMillis()
+        }
+    }
+
     private suspend fun generateContentWithRetry(
         apiKey: String,
         request: GenerateContentRequest,
@@ -157,6 +172,7 @@ object GeminiClient {
         for (model in models) {
             repeat(maxRetriesPerModel) { attempt ->
                 try {
+                    throttleRequests()
                     return service.generateContent(model, apiKey, request)
                 } catch (e: HttpException) {
                     lastError = e
@@ -164,7 +180,10 @@ object GeminiClient {
                     Log.e(TAG, "Model $model HTTP ${e.code()}: $errorBody")
                     val retryable = e.code() in listOf(429, 500, 502, 503, 504)
                     if (retryable && attempt < maxRetriesPerModel - 1) {
-                        val delayMs = 1500L * (attempt + 1) * (attempt + 1)
+                        val delayMs = when (e.code()) {
+                            429 -> 20_000L * (attempt + 1)
+                            else -> 1500L * (attempt + 1) * (attempt + 1)
+                        }
                         Log.w(TAG, "Model $model returned HTTP ${e.code()}, retrying in ${delayMs}ms")
                         delay(delayMs)
                     } else if (!retryable) {
@@ -219,7 +238,7 @@ object GeminiClient {
         if (e is HttpException) {
             return when (e.code()) {
                 503, 502, 504 -> "Gemini servers are temporarily busy (HTTP ${e.code()}). Wait a moment and try again, or type your dream instead."
-                429 -> "Gemini rate limit reached. Please wait a minute and try again."
+                429 -> "Gemini rate limit reached (too many AI requests). Wait 2–3 minutes, then try again. Typing a short dream uses fewer API calls than voice."
                 401, 403 -> "API key rejected. Check your GEMINI_API_KEY in the .env file."
                 else -> "Gemini API error during $action (HTTP ${e.code()}). Please try again."
             }
@@ -586,6 +605,64 @@ object GeminiClient {
             words.isEmpty() -> "Untitled Dream"
             words.size <= 5 -> words.joinToString(" ")
             else -> words.take(5).joinToString(" ") + "…"
+        }
+    }
+
+    data class DreamMetadata(
+        val tags: String,
+        val title: String
+    )
+
+    /**
+     * Generates tags and title in a single API call to reduce rate-limit pressure.
+     */
+    suspend fun suggestDreamMetadata(dreamText: String): DreamMetadata {
+        val apiKey = resolveApiKey()
+        if (apiKey == null) {
+            return DreamMetadata(tags = "dream", title = fallbackDreamTitle(dreamText))
+        }
+
+        val prompt = """
+            Given this dream narrative, return exactly two lines:
+            Line 1 - TAGS: a comma-separated list of 3-5 lowercase single-word tags (e.g. flying,water,family)
+            Line 2 - TITLE: a short poetic dream title of 3-7 words (no quotes)
+            
+            Dream text:
+            $dreamText
+        """.trimIndent()
+
+        val request = GenerateContentRequest(
+            contents = listOf(Content(parts = listOf(Part(text = prompt))))
+        )
+
+        return try {
+            val response = generateContentWithRetry(apiKey, request)
+            val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text.orEmpty()
+            var tags = "dream"
+            var title = fallbackDreamTitle(dreamText)
+
+            text.lines().forEach { line ->
+                when {
+                    line.startsWith("TAGS:", ignoreCase = true) -> {
+                        tags = line.substringAfter(":").trim().lowercase()
+                            .replace("`", "").replace(" ", "")
+                    }
+                    line.startsWith("TITLE:", ignoreCase = true) -> {
+                        title = line.substringAfter(":").trim()
+                            .removeSurrounding("\"")
+                            .removeSurrounding("'")
+                            .take(80)
+                    }
+                }
+            }
+
+            DreamMetadata(
+                tags = tags.ifBlank { "dream" },
+                title = title.ifBlank { fallbackDreamTitle(dreamText) }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to suggest dream metadata", e)
+            DreamMetadata(tags = "dream", title = fallbackDreamTitle(dreamText))
         }
     }
 
