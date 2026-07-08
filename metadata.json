@@ -1,0 +1,6 @@
+{
+  "name": "Dream Journal",
+  "description": "A multi-modal dream journaling app with voice recording, AI transcription, surrealist artwork generation, and archetypal analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
