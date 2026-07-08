@@ -13,6 +13,7 @@ import com.example.data.DreamRepository
 import com.example.network.Content
 import com.example.network.GeminiClient
 import com.example.network.Part
+import com.example.utils.AudioPlayer
 import com.example.utils.AudioRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,7 +22,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileInputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
@@ -40,6 +40,14 @@ sealed interface PatternAnalysisState {
     data class Success(val report: String, val dreamCountAnalyzed: Int) : PatternAnalysisState
     data class Error(val message: String) : PatternAnalysisState
 }
+
+data class AudioPlaybackState(
+    val dreamId: Long? = null,
+    val isPlaying: Boolean = false,
+    val currentPositionMs: Int = 0,
+    val durationMs: Int = 0,
+    val error: String? = null
+)
 
 class DreamJournalViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "DreamJournalViewModel"
@@ -91,12 +99,20 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     val isSendingChatMessage: StateFlow<Boolean> = _isSendingChatMessage.asStateFlow()
 
     private val audioRecorder = AudioRecorder(context)
+    private val audioPlayer = AudioPlayer()
     private var timerJob: Job? = null
+    private var positionUpdateJob: Job? = null
     private var recordedFile: File? = null
+
+    private val _audioPlaybackState = MutableStateFlow(AudioPlaybackState())
+    val audioPlaybackState: StateFlow<AudioPlaybackState> = _audioPlaybackState.asStateFlow()
 
     // --- Actions ---
 
     fun selectDream(dreamId: Long?) {
+        if (_selectedDreamId.value != dreamId) {
+            stopAudioPlayback()
+        }
         _selectedDreamId.value = dreamId
     }
 
@@ -151,11 +167,122 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                     if (file.exists()) file.delete()
                 }
 
+                if (_audioPlaybackState.value.dreamId == dreamId) {
+                    stopAudioPlayback()
+                }
+
                 repository.deleteDream(dreamId)
             } catch (e: Exception) {
                 Log.e(TAG, "Error deleting dream", e)
             }
         }
+    }
+
+    fun updateDreamTitle(dreamId: Long, title: String) {
+        val trimmedTitle = title.trim()
+        if (trimmedTitle.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val dream = allDreams.value.find { it.id == dreamId } ?: return@launch
+                repository.updateDream(dream.copy(title = trimmedTitle))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating dream title", e)
+            }
+        }
+    }
+
+    fun toggleAudioPlayback(dreamId: Long, audioPath: String) {
+        val current = _audioPlaybackState.value
+        if (current.dreamId == dreamId && current.isPlaying) {
+            audioPlayer.pause()
+            stopPositionUpdates()
+            _audioPlaybackState.value = current.copy(isPlaying = false)
+            return
+        }
+
+        if (current.dreamId == dreamId && audioPlayer.isPreparedFor(audioPath)) {
+            audioPlayer.play()
+            startPositionUpdates(dreamId)
+            _audioPlaybackState.value = current.copy(isPlaying = true, error = null)
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                stopAudioPlayback()
+                val duration = withContext(Dispatchers.IO) {
+                    audioPlayer.prepare(audioPath)
+                }
+                audioPlayer.play()
+                _audioPlaybackState.value = AudioPlaybackState(
+                    dreamId = dreamId,
+                    isPlaying = true,
+                    currentPositionMs = 0,
+                    durationMs = duration,
+                    error = null
+                )
+                startPositionUpdates(dreamId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to play dream audio", e)
+                _audioPlaybackState.value = AudioPlaybackState(
+                    dreamId = dreamId,
+                    isPlaying = false,
+                    error = "Could not play recording: ${e.localizedMessage}"
+                )
+            }
+        }
+    }
+
+    fun seekAudioPlayback(positionMs: Int) {
+        audioPlayer.seekTo(positionMs)
+        _audioPlaybackState.value = _audioPlaybackState.value.copy(currentPositionMs = positionMs)
+    }
+
+    fun stopAudioPlayback() {
+        stopPositionUpdates()
+        audioPlayer.release()
+        _audioPlaybackState.value = AudioPlaybackState()
+    }
+
+    private fun startPositionUpdates(dreamId: Long) {
+        stopPositionUpdates()
+        positionUpdateJob = viewModelScope.launch {
+            while (true) {
+                delay(250)
+                val state = _audioPlaybackState.value
+                if (state.dreamId != dreamId) break
+
+                val position = audioPlayer.currentPosition()
+                val duration = audioPlayer.duration().takeIf { it > 0 } ?: state.durationMs
+                val playing = audioPlayer.isPlaying()
+
+                if (!playing && position >= duration - 500 && duration > 0) {
+                    audioPlayer.stop()
+                    _audioPlaybackState.value = state.copy(
+                        isPlaying = false,
+                        currentPositionMs = 0,
+                        durationMs = duration
+                    )
+                    break
+                }
+
+                _audioPlaybackState.value = state.copy(
+                    isPlaying = playing,
+                    currentPositionMs = position,
+                    durationMs = duration
+                )
+            }
+        }
+    }
+
+    private fun stopPositionUpdates() {
+        positionUpdateJob?.cancel()
+        positionUpdateJob = null
+    }
+
+    override fun onCleared() {
+        stopAudioPlayback()
+        super.onCleared()
     }
 
     /**
@@ -325,13 +452,15 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         val firstLines = interpretation.lines().filter { it.isNotBlank() }
         val emotionalTheme = firstLines.firstOrNull { !it.startsWith("#") } ?: "Jungian Dream Analysis"
 
-        // Suggest dream tags from Gemini
+        // Suggest dream tags and title from Gemini
         val autoTags = GeminiClient.suggestDreamTags(transcription)
+        val dreamTitle = GeminiClient.generateDreamTitle(transcription)
 
         // 3. Update database record with structured analysis
         loadedDream = repository.allDreams.first().find { it.id == id }
         if (loadedDream != null) {
             val updatedDream = loadedDream.copy(
+                title = dreamTitle,
                 emotionalTheme = emotionalTheme,
                 structuredInterpretation = interpretation,
                 tags = autoTags

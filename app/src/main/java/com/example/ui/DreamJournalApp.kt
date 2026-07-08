@@ -65,6 +65,17 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
+
+private fun Dream.displayTitle(): String =
+    title?.takeIf { it.isNotBlank() } ?: rawText.lineSequence().firstOrNull()?.take(60)?.trim().orEmpty().ifBlank { "Untitled Dream" }
+
+private fun formatAudioTime(ms: Int): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
+}
 
 // --- Navigation Routes ---
 object Routes {
@@ -167,10 +178,19 @@ fun DreamJournalApp(
                                         SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(dream.timestamp))
                                     }
                                     Text(
-                                        text = dateStr,
+                                        text = dream.displayTitle(),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = NebulaLavender
+                                        color = NebulaLavender,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = dateStr,
+                                        fontSize = 11.sp,
+                                        color = DreamTeal,
+                                        fontWeight = FontWeight.Bold
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
@@ -257,6 +277,7 @@ fun DashboardScreen(
             val query = searchQuery.lowercase().trim()
             dreams.filter { dream ->
                 dream.rawText.lowercase().contains(query) ||
+                        dream.title?.lowercase()?.contains(query) == true ||
                         dream.tags.lowercase().split(",").any { tag -> tag.trim().contains(query) }
             }
         }
@@ -775,13 +796,23 @@ fun DreamListItem(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = dream.rawText,
+                    text = dream.displayTitle(),
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     color = NebulaLavender,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = dream.rawText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp
                 )
                 if (dream.emotionalTheme != null) {
                     Spacer(modifier = Modifier.height(6.dp))
@@ -1162,9 +1193,16 @@ fun DetailScreen(
     val dream by viewModel.selectedDream.collectAsStateWithLifecycle()
     val chatHistory by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isSendingChat by viewModel.isSendingChatMessage.collectAsStateWithLifecycle()
+    val audioPlayback by viewModel.audioPlaybackState.collectAsStateWithLifecycle()
 
     var chatInputText by remember { mutableStateOf("") }
+    var isEditingTitle by remember { mutableStateOf(false) }
+    var editedTitle by remember { mutableStateOf("") }
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopAudioPlayback() }
+    }
 
     val formattedDate = remember(dream?.timestamp) {
         val stamp = dream?.timestamp ?: 0L
@@ -1435,7 +1473,204 @@ fun DetailScreen(
                         }
                     }
 
-                    // 3. Transcript Text Section
+                    // 3. Dream Title Section
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                            border = BorderStroke(1.dp, EtherealCardBorder)
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Dream Title",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DreamGold
+                                    )
+                                    if (!isEditingTitle) {
+                                        IconButton(
+                                            onClick = {
+                                                editedTitle = currentDream.title ?: currentDream.displayTitle()
+                                                isEditingTitle = true
+                                            },
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .testTag("edit_title_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Edit title",
+                                                tint = DreamTeal,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                if (isEditingTitle) {
+                                    OutlinedTextField(
+                                        value = editedTitle,
+                                        onValueChange = { editedTitle = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("edit_title_input"),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = NebulaLavender,
+                                            unfocusedTextColor = NebulaLavender,
+                                            focusedBorderColor = DreamTeal,
+                                            unfocusedBorderColor = EtherealCardBorder,
+                                            focusedContainerColor = CosmicBackground,
+                                            unfocusedContainerColor = CosmicBackground
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        singleLine = true
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        TextButton(
+                                            onClick = { isEditingTitle = false },
+                                            modifier = Modifier.testTag("cancel_title_button")
+                                        ) {
+                                            Text("Cancel", color = TextSecondary)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                viewModel.updateDreamTitle(currentDream.id, editedTitle)
+                                                isEditingTitle = false
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = DreamPurple),
+                                            modifier = Modifier.testTag("save_title_button")
+                                        ) {
+                                            Text("Save", color = Color.White)
+                                        }
+                                    }
+                                } else if (currentDream.title.isNullOrBlank()) {
+                                    Text(
+                                        text = "Generating title…",
+                                        fontSize = 18.sp,
+                                        fontFamily = FontFamily.Serif,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                        color = TextSecondary
+                                    )
+                                } else {
+                                    Text(
+                                        text = currentDream.title,
+                                        fontSize = 22.sp,
+                                        fontFamily = FontFamily.Serif,
+                                        fontWeight = FontWeight.SemiBold,
+                                        lineHeight = 28.sp,
+                                        color = NebulaLavender
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 3.5. Voice Recording Playback
+                    if (!currentDream.audioPath.isNullOrBlank()) {
+                        item {
+                            val audioPath = currentDream.audioPath!!
+                            val isCurrentDreamAudio = audioPlayback.dreamId == currentDream.id
+                            val isPlaying = isCurrentDreamAudio && audioPlayback.isPlaying
+                            val currentPosition = if (isCurrentDreamAudio) audioPlayback.currentPositionMs else 0
+                            val duration = if (isCurrentDreamAudio) audioPlayback.durationMs else 0
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                                    .testTag("audio_playback_card"),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                                border = BorderStroke(1.dp, EtherealCardBorder)
+                            ) {
+                                Column(modifier = Modifier.padding(20.dp)) {
+                                    Text(
+                                        text = "Original Voice Recording",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DreamTeal
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.toggleAudioPlayback(currentDream.id, audioPath)
+                                            },
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .background(DreamPurple, CircleShape)
+                                                .testTag("audio_play_pause_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                                tint = Color.White
+                                            )
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Slider(
+                                                value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                                                onValueChange = { progress ->
+                                                    if (duration > 0) {
+                                                        viewModel.seekAudioPlayback((progress * duration).roundToInt())
+                                                    }
+                                                },
+                                                modifier = Modifier.testTag("audio_seek_slider"),
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = DreamTeal,
+                                                    activeTrackColor = DreamTeal,
+                                                    inactiveTrackColor = EtherealCardBorder
+                                                )
+                                            )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = formatAudioTime(currentPosition),
+                                                    fontSize = 11.sp,
+                                                    color = TextSecondary
+                                                )
+                                                Text(
+                                                    text = formatAudioTime(duration),
+                                                    fontSize = 11.sp,
+                                                    color = TextSecondary
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    if (isCurrentDreamAudio && audioPlayback.error != null) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = audioPlayback.error,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFFF8A80)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Transcript Text Section
                     item {
                         Card(
                             modifier = Modifier

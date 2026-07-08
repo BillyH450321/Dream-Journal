@@ -448,6 +448,51 @@ object GeminiClient {
     }
 
     /**
+     * Generates a short, evocative title for a dream entry.
+     */
+    suspend fun generateDreamTitle(dreamText: String): String {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+            return fallbackDreamTitle(dreamText)
+        }
+
+        val prompt = """
+            Create a short, evocative title (3-7 words) for this dream journal entry.
+            The title should feel poetic and dreamlike, like a chapter name — not a summary sentence.
+            Return ONLY the title text. No quotes, punctuation at the end, or explanation.
+            
+            Dream text:
+            $dreamText
+        """.trimIndent()
+
+        val request = GenerateContentRequest(
+            contents = listOf(Content(parts = listOf(Part(text = prompt))))
+        )
+
+        return try {
+            val response = service.generateContent("gemini-3.5-flash", apiKey, request)
+            val title = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                ?.trim()
+                ?.removeSurrounding("\"")
+                ?.removeSurrounding("'")
+                ?.take(80)
+            if (title.isNullOrBlank()) fallbackDreamTitle(dreamText) else title
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to generate dream title", e)
+            fallbackDreamTitle(dreamText)
+        }
+    }
+
+    private fun fallbackDreamTitle(dreamText: String): String {
+        val words = dreamText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        return when {
+            words.isEmpty() -> "Untitled Dream"
+            words.size <= 5 -> words.joinToString(" ")
+            else -> words.take(5).joinToString(" ") + "…"
+        }
+    }
+
+    /**
      * Suggests a list of 3-5 lowercase, comma-separated tags representing core themes, symbols, or emotions in a dream.
      */
     suspend fun suggestDreamTags(dreamText: String): String {

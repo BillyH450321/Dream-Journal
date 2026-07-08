@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 data class Dream(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long = System.currentTimeMillis(),
+    val title: String? = null,
     val rawText: String,
     val surrealImagePath: String? = null,
     val emotionalTheme: String? = null,
@@ -62,7 +63,7 @@ interface DreamDao {
     suspend fun insertChatMessage(message: ChatMessage): Long
 }
 
-@Database(entities = [Dream::class, ChatMessage::class], version = 3, exportSchema = false)
+@Database(entities = [Dream::class, ChatMessage::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dreamDao(): DreamDao
 
