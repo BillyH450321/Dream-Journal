@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -14,9 +15,14 @@ private val Context.apiKeyDataStore: DataStore<Preferences> by preferencesDataSt
 
 class ApiKeyStore(private val context: Context) {
     private val apiKeyPreference = stringPreferencesKey("gemini_api_key")
+    private val analyzeWithAiPreference = booleanPreferencesKey("analyze_with_ai_default")
 
     val apiKey: Flow<String> = context.apiKeyDataStore.data.map { prefs ->
         prefs[apiKeyPreference].orEmpty().trim()
+    }
+
+    val analyzeWithAiDefault: Flow<Boolean> = context.apiKeyDataStore.data.map { prefs ->
+        prefs[analyzeWithAiPreference] ?: false
     }
 
     suspend fun saveApiKey(key: String) {
@@ -27,5 +33,11 @@ class ApiKeyStore(private val context: Context) {
 
     suspend fun readApiKey(): String {
         return apiKey.first()
+    }
+
+    suspend fun saveAnalyzeWithAiDefault(enabled: Boolean) {
+        context.apiKeyDataStore.edit { prefs ->
+            prefs[analyzeWithAiPreference] = enabled
+        }
     }
 }

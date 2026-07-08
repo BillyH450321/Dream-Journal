@@ -76,6 +76,9 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val _apiTestState = MutableStateFlow<ApiTestState>(ApiTestState.Idle)
     val apiTestState: StateFlow<ApiTestState> = _apiTestState.asStateFlow()
 
+    private val _analyzeWithAiDefault = MutableStateFlow(false)
+    val analyzeWithAiDefault: StateFlow<Boolean> = _analyzeWithAiDefault.asStateFlow()
+
     init {
         val database = AppDatabase.getDatabase(context)
         repository = DreamRepository(database.dreamDao())
@@ -90,6 +93,12 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
             apiKeyStore.apiKey.collect { key ->
                 _storedApiKey.value = key
                 ApiKeyProvider.runtimeKey = key
+            }
+        }
+
+        viewModelScope.launch {
+            apiKeyStore.analyzeWithAiDefault.collect { enabled ->
+                _analyzeWithAiDefault.value = enabled
             }
         }
     }
@@ -157,6 +166,12 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
 
     fun resetApiTestState() {
         _apiTestState.value = ApiTestState.Idle
+    }
+
+    fun setAnalyzeWithAiDefault(enabled: Boolean) {
+        viewModelScope.launch {
+            apiKeyStore.saveAnalyzeWithAiDefault(enabled)
+        }
     }
 
     fun selectDream(dreamId: Long?) {
