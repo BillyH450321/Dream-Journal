@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -8,6 +9,16 @@ plugins {
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
 }
+
+val envProperties = Properties().apply {
+  val envFile = rootProject.file(".env")
+  if (envFile.exists()) {
+    envFile.inputStream().use { load(it) }
+  }
+}
+
+val geminiApiKeyFromEnv: String =
+  envProperties.getProperty("GEMINI_API_KEY")?.trim().orEmpty().ifBlank { "MY_GEMINI_API_KEY" }
 
 android {
   namespace = "com.example"
@@ -21,6 +32,7 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKeyFromEnv\"")
   }
 
   signingConfigs {
