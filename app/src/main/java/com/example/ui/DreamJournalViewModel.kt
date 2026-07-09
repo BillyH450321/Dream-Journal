@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Activity
 import android.app.Application
 import android.util.Log
+import com.example.billing.BillingUiState
 import com.example.billing.SubscriptionBillingManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -43,6 +44,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val aiClient: DreamAiClient = GeminiDreamAiClient()
     private val apiKeyStore = ApiKeyStore(context)
     private val usageQuotaStore = UsageQuotaStore(context)
+    private val billingManager = SubscriptionBillingManager(context, usageQuotaStore, viewModelScope)
     private val fileStorage = DreamFileStorage(context.filesDir)
     private val analysisPipeline = DreamAnalysisPipeline(
         repository, fileStorage, viewModelScope, aiClient
@@ -65,7 +67,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     )
     val usageQuota: StateFlow<UsageQuotaSnapshot> = _usageQuota.asStateFlow()
 
-    val billingUiState = billingManager.uiState
+    val billingUiState: StateFlow<BillingUiState> = billingManager.uiState
 
     private val _isProDevOverride = MutableStateFlow(false)
     val isProDevOverride: StateFlow<Boolean> = _isProDevOverride.asStateFlow()
@@ -78,7 +80,6 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val tagEditor = DreamTagEditor(repository)
     private val patternAnalysisService = PatternAnalysisService(context, aiClient)
     private val playbackController = DreamPlaybackController(viewModelScope)
-    private val billingManager = SubscriptionBillingManager(context, usageQuotaStore, viewModelScope)
 
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     val recordingState: StateFlow<RecordingState> = _recordingState.asStateFlow()
