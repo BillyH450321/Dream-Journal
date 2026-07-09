@@ -17,7 +17,7 @@ class DreamFileStorage(private val filesDir: File) {
 
     fun saveDreamImage(base64: String, dreamId: Long): String? {
         return try {
-            val bytes = Base64.decode(base64, Base64.DEFAULT)
+            val bytes = Base64.decode(base64, Base64.NO_WRAP or Base64.URL_SAFE)
             val file = File(filesDir, "dream_img_${dreamId}.jpg")
             file.writeBytes(bytes)
             file.absolutePath

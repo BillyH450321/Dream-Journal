@@ -120,9 +120,10 @@ object GeminiClient {
     )
 
     private val IMAGE_MODELS = listOf(
+        "gemini-2.5-flash-image",
         "gemini-3.1-flash-image",
         "gemini-3.1-flash-lite-image",
-        "gemini-2.5-flash-image"
+        "gemini-2.0-flash-preview-image-generation"
     )
 
     private const val MIN_REQUEST_INTERVAL_MS = 3_000L
@@ -354,69 +355,102 @@ object GeminiClient {
     /**
      * Generates a surrealist image representing the dream's emotional theme using a two-stage pipeline.
      */
+    private fun extractImageBase64(response: GenerateContentResponse): Pair<String?, String?> {
+        val candidate = response.candidates?.firstOrNull()
+        val finishReason = candidate?.finishReason
+        if (finishReason == "IMAGE_SAFETY" || finishReason == "SAFETY") {
+            return null to "Image blocked by Gemini safety filters. Try a softer dream description."
+        }
+        val imageData = candidate?.content?.parts
+            .orEmpty()
+            .mapNotNull { it.inlineData?.data }
+            .firstOrNull { it.isNotBlank() }
+        if (imageData != null) return imageData to null
+        return null to when (finishReason) {
+            "NO_IMAGE" -> "Gemini returned no image for this prompt."
+            else -> "No image data in Gemini response${finishReason?.let { " ($it)" } ?: ""}."
+        }
+    }
+
     suspend fun generateSurrealImage(dreamText: String): ImageGenerationResult {
         val apiKey = resolveApiKey()
         if (apiKey == null) {
             Log.e(TAG, "Gemini API key is not set or is placeholder")
-            return ImageGenerationResult(null)
+            return ImageGenerationResult(null, errorMessage = "No API key configured.")
         }
 
-        suspend fun attemptGeneration(extraction: DreamThemeExtraction): String? {
+        suspend fun attemptGeneration(extraction: DreamThemeExtraction): Pair<String?, String?> {
             val prompt = "A surrealist painting in the style of dreamlike symbolism, depicting ${extraction.coreEmotion}. Central imagery: ${extraction.keySymbols}. Color palette: ${extraction.colorMood}. Style: reminiscent of Dalí and Magritte, soft brushwork, impossible perspective, symbolic and metaphorical rather than literal, painterly texture, dramatic lighting, no text, no logos, no legible writing."
-            
-            val request = GenerateContentRequest(
-                contents = listOf(Content(parts = listOf(Part(text = prompt)))),
-                generationConfig = GenerationConfig(
-                    imageConfig = ImageConfig(aspectRatio = "1:1", imageSize = "1K"),
-                    responseModalities = listOf("TEXT", "IMAGE")
+            val contents = listOf(Content(parts = listOf(Part(text = prompt))))
+            val safety = listOf(
+                SafetySetting("HARM_CATEGORY_DANGEROUS_CONTENT", "BLOCK_MEDIUM_AND_ABOVE"),
+                SafetySetting("HARM_CATEGORY_HARASSMENT", "BLOCK_MEDIUM_AND_ABOVE"),
+                SafetySetting("HARM_CATEGORY_HATE_SPEECH", "BLOCK_MEDIUM_AND_ABOVE"),
+                SafetySetting("HARM_CATEGORY_SEXUALLY_EXPLICIT", "BLOCK_MEDIUM_AND_ABOVE")
+            )
+
+            // Image models work best with a simple request first (per Gemini REST docs).
+            val requestVariants = listOf(
+                GenerateContentRequest(contents = contents, safetySettings = safety),
+                GenerateContentRequest(
+                    contents = contents,
+                    generationConfig = GenerationConfig(responseModalities = listOf("IMAGE", "TEXT")),
+                    safetySettings = safety
                 ),
-                safetySettings = listOf(
-                    SafetySetting("HARM_CATEGORY_DANGEROUS_CONTENT", "BLOCK_MEDIUM_AND_ABOVE"),
-                    SafetySetting("HARM_CATEGORY_HARASSMENT", "BLOCK_MEDIUM_AND_ABOVE"),
-                    SafetySetting("HARM_CATEGORY_HATE_SPEECH", "BLOCK_MEDIUM_AND_ABOVE"),
-                    SafetySetting("HARM_CATEGORY_SEXUALLY_EXPLICIT", "BLOCK_MEDIUM_AND_ABOVE")
+                GenerateContentRequest(
+                    contents = contents,
+                    generationConfig = GenerationConfig(
+                        imageConfig = ImageConfig(aspectRatio = "1:1", imageSize = "1K"),
+                        responseModalities = listOf("IMAGE", "TEXT")
+                    ),
+                    safetySettings = safety
                 )
             )
 
-            val response = generateContentWithRetry(apiKey, request, models = IMAGE_MODELS, maxRetriesPerModel = 2)
-            val candidate = response.candidates?.firstOrNull()
-            if (candidate?.finishReason == "IMAGE_SAFETY" || candidate?.finishReason == "SAFETY") {
-                return null // Blocked
+            var lastError: String? = null
+            for (request in requestVariants) {
+                try {
+                    val response = generateContentWithRetry(apiKey, request, models = IMAGE_MODELS, maxRetriesPerModel = 2)
+                    val (image, error) = extractImageBase64(response)
+                    if (image != null) return image to null
+                    lastError = error
+                } catch (e: Exception) {
+                    lastError = formatApiError(e, "image generation")
+                    Log.w(TAG, "Image request variant failed: $lastError")
+                }
             }
-            return candidate?.content?.parts?.firstOrNull { it.inlineData != null }?.inlineData?.data
+            return null to (lastError ?: "Image generation failed after all attempts.")
         }
 
         try {
-            // Stage 1: Standard Extraction
             val extraction = extractDreamTheme(dreamText, soften = false)
-            var imageResult = attemptGeneration(extraction)
-
+            var (imageResult, error) = attemptGeneration(extraction)
             if (imageResult != null) {
                 return ImageGenerationResult(imageResult, fallbackUsed = false)
             }
 
-            // Stage 2: Fallback to softened extraction
-            Log.w(TAG, "Image generation blocked by safety filters. Attempting softened fallback.")
+            Log.w(TAG, "Image generation failed, trying softened fallback: $error")
             val softenedExtraction = extractDreamTheme(dreamText, soften = true)
-            imageResult = attemptGeneration(softenedExtraction)
-
+            imageResult = attemptGeneration(softenedExtraction).first
             if (imageResult != null) {
                 return ImageGenerationResult(imageResult, fallbackUsed = true)
             }
 
-            // Stage 3: Ultimate abstract fallback
-            Log.w(TAG, "Softened image generation also blocked. Attempting abstract fallback.")
+            Log.w(TAG, "Softened image generation failed, trying abstract fallback.")
             val abstractExtraction = DreamThemeExtraction(
                 coreEmotion = "an undefined profound feeling",
                 keySymbols = "soft, flowing shapes and atmospheric mist",
                 colorMood = softenedExtraction.colorMood
             )
-            imageResult = attemptGeneration(abstractExtraction)
-            return ImageGenerationResult(imageResult, fallbackUsed = true)
-
+            val abstractAttempt = attemptGeneration(abstractExtraction)
+            return ImageGenerationResult(
+                imageBytesBase64 = abstractAttempt.first,
+                fallbackUsed = true,
+                errorMessage = abstractAttempt.second
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Surreal image generation pipeline failed", e)
-            return ImageGenerationResult(null)
+            return ImageGenerationResult(null, errorMessage = formatApiError(e, "image generation"))
         }
     }
 

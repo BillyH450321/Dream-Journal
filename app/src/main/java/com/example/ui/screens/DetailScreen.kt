@@ -328,6 +328,17 @@ fun DetailScreen(
                                                 color = TextSecondary,
                                                 fontWeight = FontWeight.Medium
                                             )
+                                            currentDream.artworkError?.let { error ->
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = error,
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFFFF8A80),
+                                                    textAlign = TextAlign.Center,
+                                                    lineHeight = 16.sp,
+                                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                                )
+                                            }
                                             Spacer(modifier = Modifier.height(12.dp))
                                             Button(
                                                 onClick = {

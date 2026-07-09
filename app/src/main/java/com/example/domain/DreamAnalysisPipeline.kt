@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import com.example.data.Dream
 import com.example.data.DreamRepository
+import com.example.network.ImageGenerationResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -103,14 +104,19 @@ class DreamAnalysisPipeline(
     suspend fun regenerateArtwork(dreamId: Long, rawText: String) {
         val dream = repository.allDreams.first().find { it.id == dreamId } ?: return
         try {
-            repository.updateDream(dream.copy(artworkStatus = "pending"))
+            repository.updateDream(dream.copy(artworkStatus = "pending", artworkError = null))
             val result = aiClient.generateSurrealImage(rawText)
-            applyArtworkResult(dreamId, result.imageBytesBase64, result.fallbackUsed)
+            applyArtworkResult(dreamId, result)
         } catch (e: Exception) {
             Log.e(tag, "Manual artwork regeneration failed", e)
             val currentDream = repository.allDreams.first().find { it.id == dreamId }
             if (currentDream != null) {
-                repository.updateDream(currentDream.copy(artworkStatus = "failed"))
+                repository.updateDream(
+                    currentDream.copy(
+                        artworkStatus = "failed",
+                        artworkError = e.localizedMessage ?: "Artwork regeneration failed."
+                    )
+                )
             }
         }
     }
@@ -120,12 +126,17 @@ class DreamAnalysisPipeline(
             try {
                 delay(5_000)
                 val result = aiClient.generateSurrealImage(transcription)
-                applyArtworkResult(dreamId, result.imageBytesBase64, result.fallbackUsed)
+                applyArtworkResult(dreamId, result)
             } catch (e: Exception) {
                 Log.e(tag, "Image generation background task failed", e)
                 val currentDream = repository.allDreams.first().find { it.id == dreamId }
                 if (currentDream != null) {
-                    repository.updateDream(currentDream.copy(artworkStatus = "failed"))
+                    repository.updateDream(
+                        currentDream.copy(
+                            artworkStatus = "failed",
+                            artworkError = e.localizedMessage ?: "Background artwork task failed."
+                        )
+                    )
                 }
             }
         }
@@ -133,23 +144,28 @@ class DreamAnalysisPipeline(
 
     private suspend fun applyArtworkResult(
         dreamId: Long,
-        imageBytesBase64: String?,
-        fallbackUsed: Boolean
+        result: ImageGenerationResult
     ) {
         var savedImagePath: String? = null
-        if (imageBytesBase64 != null) {
+        var saveError: String? = null
+        if (result.imageBytesBase64 != null) {
             savedImagePath = withContext(Dispatchers.IO) {
-                fileStorage.saveDreamImage(imageBytesBase64, dreamId)
+                fileStorage.saveDreamImage(result.imageBytesBase64, dreamId)
+            }
+            if (savedImagePath == null) {
+                saveError = "Image returned but could not be saved on device."
             }
         }
 
         val currentDream = repository.allDreams.first().find { it.id == dreamId }
         if (currentDream != null) {
+            val success = savedImagePath != null
             repository.updateDream(
                 currentDream.copy(
                     surrealImagePath = savedImagePath,
-                    artworkStatus = if (savedImagePath != null) "complete" else "failed",
-                    artworkFallbackUsed = fallbackUsed
+                    artworkStatus = if (success) "complete" else "failed",
+                    artworkFallbackUsed = if (success) result.fallbackUsed else currentDream.artworkFallbackUsed,
+                    artworkError = if (success) null else (saveError ?: result.errorMessage ?: "Artwork generation failed.")
                 )
             )
         }

@@ -17,7 +17,8 @@ data class Dream(
     val tags: String = "",
     val analysisStatus: String = "deferred",
     val artworkStatus: String = "deferred",
-    val artworkFallbackUsed: Boolean = false
+    val artworkFallbackUsed: Boolean = false,
+    val artworkError: String? = null
 )
 
 @Entity(
@@ -64,7 +65,7 @@ interface DreamDao {
     suspend fun insertChatMessage(message: ChatMessage): Long
 }
 
-@Database(entities = [Dream::class, ChatMessage::class], version = 5, exportSchema = true)
+@Database(entities = [Dream::class, ChatMessage::class], version = 6, exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dreamDao(): DreamDao
 

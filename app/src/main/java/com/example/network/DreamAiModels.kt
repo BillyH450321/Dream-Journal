@@ -7,5 +7,6 @@ data class DreamMetadata(
 
 data class ImageGenerationResult(
     val imageBytesBase64: String?,
-    val fallbackUsed: Boolean = false
+    val fallbackUsed: Boolean = false,
+    val errorMessage: String? = null
 )
