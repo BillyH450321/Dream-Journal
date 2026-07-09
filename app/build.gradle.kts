@@ -23,6 +23,7 @@ val geminiApiKeyFromEnv: String =
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
+  buildToolsVersion = "36.1.0"
 
   defaultConfig {
     applicationId = "com.aistudio.dreamjournal.xwkpyt"

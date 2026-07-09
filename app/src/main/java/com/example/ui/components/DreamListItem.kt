@@ -29,6 +29,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.platform.testTag
 
 @Composable

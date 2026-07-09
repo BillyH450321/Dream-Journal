@@ -1,11 +1,13 @@
 package com.example.ui.screens
 
+import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,6 +42,9 @@ import com.example.ui.navigation.Routes
 import com.example.ui.theme.*
 import com.example.ui.util.filterDreams
 import android.Manifest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.shadow
 
@@ -149,17 +154,15 @@ fun DashboardScreen(
                         }
                     }
                     
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(Color(0xFF2D3035), CircleShape),
-                        contentAlignment = Alignment.Center
+                    IconButton(
+                        onClick = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                        modifier = Modifier.testTag("dashboard_settings_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "Cosmic",
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Account & Plan",
                             tint = DreamGold,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }

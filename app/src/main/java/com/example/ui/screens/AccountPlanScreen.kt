@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -16,30 +18,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.example.BuildConfig
+import com.example.billing.BillingUiState
+import com.example.data.UsageQuotaSnapshot
 import com.example.ui.ApiTestState
 import com.example.ui.DreamJournalViewModel
 import com.example.ui.components.ProFeatureBadge
+import com.example.ui.navigation.Routes
 import com.example.ui.theme.*
 
 @Composable
-fun SettingsScreen(
+fun AccountPlanScreen(
     viewModel: DreamJournalViewModel,
     navController: NavHostController
 ) {
     val storedApiKey by viewModel.storedApiKey.collectAsStateWithLifecycle()
     val apiTestState by viewModel.apiTestState.collectAsStateWithLifecycle()
     val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
+    val billingState by viewModel.billingUiState.collectAsStateWithLifecycle()
     val isProDevOverride by viewModel.isProDevOverride.collectAsStateWithLifecycle()
     var apiKeyInput by remember(storedApiKey) { mutableStateOf(storedApiKey) }
+    val context = LocalContext.current
 
     Box(
         modifier = Modifier
@@ -63,9 +69,9 @@ fun SettingsScreen(
                         Icon(Icons.AutoMirrored.Default.ArrowBack, contentDescription = "Back", tint = NebulaLavender)
                     }
                     Column {
-                        Text("API Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = NebulaLavender)
+                        Text("Account & Plan", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = NebulaLavender)
                         Text(
-                            "GEMINI API KEY",
+                            "YOUR PLAN & AI SETUP",
                             fontSize = 10.sp,
                             color = DreamTeal,
                             fontWeight = FontWeight.Bold,
@@ -78,9 +84,34 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                PlanStatusCard(
+                    usageQuota = usageQuota,
+                    billingState = billingState,
+                    onUpgradeClick = { navController.navigate(Routes.PAYWALL) { launchSingleTop = true } },
+                    onRestoreClick = { viewModel.restorePurchases() },
+                    onManageSubscriptionClick = {
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            data = Uri.parse(
+                                "https://play.google.com/store/account/subscriptions?package=${context.packageName}"
+                            )
+                        }
+                        context.startActivity(intent)
+                    }
+                )
+
+                Text(
+                    text = "AI Connection",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = DreamTeal,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
@@ -251,10 +282,139 @@ fun SettingsScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
 }
 
-// --- Dashboard Screen ---
+@Composable
+private fun PlanStatusCard(
+    usageQuota: UsageQuotaSnapshot,
+    billingState: BillingUiState,
+    onUpgradeClick: () -> Unit,
+    onRestoreClick: () -> Unit,
+    onManageSubscriptionClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("account_plan_status_card"),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = EtherealCard),
+        border = BorderStroke(
+            1.dp,
+            if (usageQuota.isPro) DreamTeal.copy(alpha = 0.5f) else DreamGold.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            Brush.linearGradient(colors = listOf(DreamPurple, DreamGold)),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (usageQuota.isPro) Icons.Default.Verified else Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (usageQuota.isPro) "Dream Weaver Pro" else "Free plan",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (usageQuota.isPro) DreamTeal else DreamGold
+                    )
+                    Text(
+                        text = if (usageQuota.isPro) {
+                            "Unlimited AI analyses, chat, patterns & artwork"
+                        } else {
+                            "${usageQuota.remaining} of ${usageQuota.monthlyLimit} AI analyses left this month"
+                        },
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
 
+            Text(
+                text = "Your journal stays on this device. Subscriptions are tied to your Google Play account — no separate sign-in.",
+                fontSize = 12.sp,
+                color = TextSecondary,
+                lineHeight = 18.sp
+            )
+
+            if (!usageQuota.isPro) {
+                Button(
+                    onClick = onUpgradeClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("account_upgrade_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = DreamPurple),
+                    enabled = !billingState.purchaseInProgress
+                ) {
+                    if (billingState.purchaseInProgress) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Upgrade to Pro", fontWeight = FontWeight.Bold)
+                    }
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onManageSubscriptionClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("account_manage_subscription_button"),
+                    border = BorderStroke(1.dp, DreamTeal)
+                ) {
+                    Icon(Icons.Default.ManageAccounts, contentDescription = null, tint = DreamTeal, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Manage subscription", color = DreamTeal, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                TextButton(
+                    onClick = onRestoreClick,
+                    enabled = !billingState.purchaseInProgress,
+                    modifier = Modifier.testTag("account_restore_button")
+                ) {
+                    Text("Restore purchases", color = DreamTeal)
+                }
+            }
+
+            billingState.errorMessage?.let { error ->
+                Text(
+                    text = error,
+                    fontSize = 12.sp,
+                    color = Color(0xFFFF8A80),
+                    lineHeight = 18.sp
+                )
+            }
+        }
+    }
+}

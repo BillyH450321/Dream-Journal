@@ -34,7 +34,7 @@ import com.example.ui.screens.DetailScreen
 import com.example.ui.screens.PaywallScreen
 import com.example.ui.screens.PatternAnalysisScreen
 import com.example.ui.screens.RecorderScreen
-import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.AccountPlanScreen
 import com.example.ui.theme.*
 import com.example.ui.util.displayTitle
 import kotlinx.coroutines.launch
@@ -102,9 +102,9 @@ fun DreamJournalApp(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("open_settings_button")
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = null, tint = DreamGold)
+                    Icon(Icons.Default.ManageAccounts, contentDescription = null, tint = DreamGold)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("API Settings", color = DreamGold, fontWeight = FontWeight.Bold)
+                    Text("Account & Plan", color = DreamGold, fontWeight = FontWeight.Bold)
                 }
 
                 HorizontalDivider(color = EtherealCardBorder, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
@@ -234,7 +234,7 @@ fun DreamJournalApp(
                     )
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsScreen(
+                    AccountPlanScreen(
                         viewModel = viewModel,
                         navController = navController
                     )

@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -13,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -215,126 +218,135 @@ fun PatternAnalysisScreen(
                         }
                     }
                 } else {
-                    when (val state = analysisState) {
-                        is PatternAnalysisState.Idle, is PatternAnalysisState.Loading -> {
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().testTag("loading_analysis_card"),
-                                    shape = RoundedCornerShape(24.dp),
-                                    colors = CardDefaults.cardColors(containerColor = EtherealCard),
-                                    border = BorderStroke(1.dp, EtherealCardBorder)
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        CircularProgressIndicator(
-                                            color = DreamPurple,
-                                            strokeWidth = 3.dp,
-                                            modifier = Modifier.size(48.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(24.dp))
-                                        Text(
-                                            text = "Weaving Dream Insights...",
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = NebulaLavender
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "Our Jungian AI analyst is reading your dream journal to synthesize recurring symbols, deep emotional threads, and major archetypes. This can take up to a minute.",
-                                            fontSize = 13.sp,
-                                            color = TextSecondary,
-                                            textAlign = TextAlign.Center,
-                                            lineHeight = 18.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        is PatternAnalysisState.Success -> {
-                            item {
-                                StyledMarkdownCard(markdownText = state.report)
-                            }
+                    patternAnalysisItems(
+                        state = analysisState,
+                        onRefresh = { viewModel.generatePatternAnalysis() }
+                    )
+                }
+            }
+        }
+    }
+}
 
-                            item {
-                                Button(
-                                    onClick = { viewModel.generatePatternAnalysis() },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(50.dp)
-                                        .testTag("refresh_pattern_analysis_button"),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = DeepVioletAccent,
-                                        contentColor = Color.White
-                                    ),
-                                    border = BorderStroke(1.dp, DreamTeal.copy(alpha = 0.5f))
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Refresh Icon",
-                                            tint = DreamTeal
-                                        )
-                                        Text(
-                                            text = "Refresh Subconscious Analysis",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = NebulaLavender
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        is PatternAnalysisState.Error -> {
-                            item {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().testTag("error_analysis_card"),
-                                    shape = RoundedCornerShape(24.dp),
-                                    colors = CardDefaults.cardColors(containerColor = EtherealCard),
-                                    border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f))
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(24.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Warning,
-                                            contentDescription = "Error Icon",
-                                            tint = Color.Red,
-                                            modifier = Modifier.size(48.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Text(
-                                            text = "Analysis Disrupted",
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = NebulaLavender
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = state.message,
-                                            fontSize = 13.sp,
-                                            color = TextSecondary,
-                                            textAlign = TextAlign.Center,
-                                            lineHeight = 18.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Button(
-                                            onClick = { viewModel.generatePatternAnalysis() },
-                                            colors = ButtonDefaults.buttonColors(containerColor = DreamPurple)
-                                        ) {
-                                            Text("Retry Analysis")
-                                        }
-                                    }
-                                }
-                            }
+private fun LazyListScope.patternAnalysisItems(
+    state: PatternAnalysisState,
+    onRefresh: () -> Unit
+) {
+    when (state) {
+        is PatternAnalysisState.Idle, is PatternAnalysisState.Loading -> {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("loading_analysis_card"),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                    border = BorderStroke(1.dp, EtherealCardBorder)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            color = DreamPurple,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "Weaving Dream Insights...",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NebulaLavender
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Our Jungian AI analyst is reading your dream journal to synthesize recurring symbols, deep emotional threads, and major archetypes. This can take up to a minute.",
+                            fontSize = 13.sp,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+            }
+        }
+        is PatternAnalysisState.Success -> {
+            item {
+                StyledMarkdownCard(markdownText = state.report)
+            }
+            item {
+                Button(
+                    onClick = onRefresh,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("refresh_pattern_analysis_button"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DeepVioletAccent,
+                        contentColor = Color.White
+                    ),
+                    border = BorderStroke(1.dp, DreamTeal.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh Icon",
+                            tint = DreamTeal
+                        )
+                        Text(
+                            text = "Refresh Subconscious Analysis",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NebulaLavender
+                        )
+                    }
+                }
+            }
+        }
+        is PatternAnalysisState.Error -> {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("error_analysis_card"),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                    border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Error Icon",
+                            tint = Color.Red,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Analysis Disrupted",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NebulaLavender
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = state.message,
+                            fontSize = 13.sp,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onRefresh,
+                            colors = ButtonDefaults.buttonColors(containerColor = DreamPurple)
+                        ) {
+                            Text("Retry Analysis")
                         }
                     }
                 }
@@ -342,5 +354,3 @@ fun PatternAnalysisScreen(
         }
     }
 }
-
-// Helper helper

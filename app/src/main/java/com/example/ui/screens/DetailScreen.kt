@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,6 +53,9 @@ import com.example.ui.util.formatAudioTime
 import com.example.ui.util.isAnalysisInProgress
 import com.example.ui.util.needsAnalysis
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
 internal fun Modifier.fillAsMaxSize() = this.fillMaxSize()
@@ -610,10 +614,11 @@ fun DetailScreen(
                                         }
                                     }
 
-                                    if (isCurrentDreamAudio && audioPlayback.error != null) {
+                                    val audioError = audioPlayback.error
+                                    if (isCurrentDreamAudio && audioError != null) {
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Text(
-                                            text = audioPlayback.error,
+                                            text = audioError,
                                             fontSize = 12.sp,
                                             color = Color(0xFFFF8A80)
                                         )
