@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Domain layer for analysis pipeline, voice processing, playback, chat, tags, and quota gating
+- Unit tests for Gemini response validation and dream tag editing
 - Unit tests for API key resolution, dream search/filter helpers, and usage quota store
 - Room schema export for safer future migrations
 
 ### Changed
 
 - Split monolithic `DreamJournalApp.kt` into navigation, screens, components, and util modules
+- Slimmed `DreamJournalViewModel` into a coordinator delegating to domain services
 - Extracted ViewModel state types into `DreamJournalViewModelState.kt`
 - Analysis quota slots are refunded when AI analysis fails after reservation
 
