@@ -48,7 +48,7 @@ fun AnalyzeModeSettingsCard(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.AccessTime,
+                    imageVector = Icons.Filled.AccessTime,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(22.dp)
