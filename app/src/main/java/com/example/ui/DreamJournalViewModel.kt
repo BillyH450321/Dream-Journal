@@ -21,8 +21,9 @@ import com.example.domain.DreamVoiceConstants
 import com.example.domain.DreamVoiceProcessor
 import com.example.domain.GeminiResponseValidator
 import com.example.domain.PatternAnalysisService
+import com.example.domain.DreamAiClient
 import com.example.network.ApiKeyProvider
-import com.example.network.GeminiClient
+import com.example.network.GeminiDreamAiClient
 import com.example.utils.AudioRecorder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -36,10 +37,13 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val repository = DreamRepository(
         AppDatabase.getDatabase(context).dreamDao()
     )
+    private val aiClient: DreamAiClient = GeminiDreamAiClient()
     private val apiKeyStore = ApiKeyStore(context)
     private val usageQuotaStore = UsageQuotaStore(context)
     private val fileStorage = DreamFileStorage(context.filesDir)
-    private val analysisPipeline = DreamAnalysisPipeline(repository, fileStorage, viewModelScope)
+    private val analysisPipeline = DreamAnalysisPipeline(
+        repository, fileStorage, viewModelScope, aiClient
+    )
     private val voiceProcessor = DreamVoiceProcessor(repository, fileStorage, analysisPipeline)
 
     val allDreams: StateFlow<List<Dream>>
@@ -62,9 +66,9 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     val paywallRequested: StateFlow<Boolean> = _paywallRequested.asStateFlow()
 
     private val quotaGate = AnalysisQuotaGate(usageQuotaStore) { _paywallRequested.value = true }
-    private val chatService = DreamChatService(repository)
+    private val chatService = DreamChatService(repository, aiClient)
     private val tagEditor = DreamTagEditor(repository)
-    private val patternAnalysisService = PatternAnalysisService(context)
+    private val patternAnalysisService = PatternAnalysisService(context, aiClient)
     private val playbackController = DreamPlaybackController(viewModelScope)
 
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
@@ -140,7 +144,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     fun testApiConnection() {
         viewModelScope.launch {
             _apiTestState.value = ApiTestState.Loading
-            val result = GeminiClient.testConnection()
+            val result = aiClient.testConnection()
             _apiTestState.value = ApiTestState.Result(
                 message = result,
                 success = result.startsWith("Connection successful")

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `DreamAiClient` interface with `GeminiDreamAiClient` implementation for testable AI calls
+- `FakeDreamAiClient` and pipeline unit tests using the interface
 - Domain layer for analysis pipeline, voice processing, playback, chat, tags, and quota gating
 - Unit tests for Gemini response validation and dream tag editing
 - Unit tests for API key resolution, dream search/filter helpers, and usage quota store

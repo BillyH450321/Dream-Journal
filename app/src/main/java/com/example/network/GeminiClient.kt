@@ -349,11 +349,6 @@ object GeminiClient {
     /**
      * Result of image generation
      */
-    data class ImageGenerationResult(
-        val imageBytesBase64: String?,
-        val fallbackUsed: Boolean = false
-    )
-
     /**
      * Generates a surrealist image representing the dream's emotional theme using a two-stage pipeline.
      */
@@ -607,11 +602,6 @@ object GeminiClient {
             else -> words.take(5).joinToString(" ") + "…"
         }
     }
-
-    data class DreamMetadata(
-        val tags: String,
-        val title: String
-    )
 
     /**
      * Generates tags and title in a single API call to reduce rate-limit pressure.

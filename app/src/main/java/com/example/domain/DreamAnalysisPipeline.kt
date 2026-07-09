@@ -4,7 +4,6 @@ import android.util.Base64
 import android.util.Log
 import com.example.data.Dream
 import com.example.data.DreamRepository
-import com.example.network.GeminiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -21,7 +20,8 @@ sealed class AnalysisStage {
 class DreamAnalysisPipeline(
     private val repository: DreamRepository,
     private val fileStorage: DreamFileStorage,
-    private val backgroundScope: CoroutineScope
+    private val backgroundScope: CoroutineScope,
+    private val aiClient: DreamAiClient
 ) {
     private val tag = "DreamAnalysisPipeline"
 
@@ -40,14 +40,14 @@ class DreamAnalysisPipeline(
                 )
             }
 
-            val interpretation = GeminiClient.interpretDream(transcription)
+            val interpretation = aiClient.interpretDream(transcription)
             if (GeminiResponseValidator.isRateLimited(interpretation)) {
                 markAnalysisFailed(dreamId)
                 return AnalysisStage.Failed(interpretation, refundQuota = true)
             }
 
             onProgress?.invoke("Generating title & tags...")
-            val metadata = GeminiClient.suggestDreamMetadata(transcription)
+            val metadata = aiClient.suggestDreamMetadata(transcription)
 
             val firstLines = interpretation.lines().filter { it.isNotBlank() }
             val emotionalTheme = firstLines.firstOrNull { !it.startsWith("#") }
@@ -86,7 +86,7 @@ class DreamAnalysisPipeline(
         val base64Audio = withContext(Dispatchers.IO) {
             Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP)
         }
-        val transcription = GeminiClient.transcribeAudio(base64Audio, "audio/mp4")
+        val transcription = aiClient.transcribeAudio(base64Audio, "audio/mp4")
         if (GeminiResponseValidator.isTranscriptionFailure(transcription)) {
             return null
         }
@@ -97,14 +97,14 @@ class DreamAnalysisPipeline(
         val base64Audio = withContext(Dispatchers.IO) {
             Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP)
         }
-        return GeminiClient.transcribeAudio(base64Audio, "audio/mp4")
+        return aiClient.transcribeAudio(base64Audio, "audio/mp4")
     }
 
     suspend fun regenerateArtwork(dreamId: Long, rawText: String) {
         val dream = repository.allDreams.first().find { it.id == dreamId } ?: return
         try {
             repository.updateDream(dream.copy(artworkStatus = "pending"))
-            val result = GeminiClient.generateSurrealImage(rawText)
+            val result = aiClient.generateSurrealImage(rawText)
             applyArtworkResult(dreamId, result.imageBytesBase64, result.fallbackUsed)
         } catch (e: Exception) {
             Log.e(tag, "Manual artwork regeneration failed", e)
@@ -119,7 +119,7 @@ class DreamAnalysisPipeline(
         backgroundScope.launch {
             try {
                 delay(5_000)
-                val result = GeminiClient.generateSurrealImage(transcription)
+                val result = aiClient.generateSurrealImage(transcription)
                 applyArtworkResult(dreamId, result.imageBytesBase64, result.fallbackUsed)
             } catch (e: Exception) {
                 Log.e(tag, "Image generation background task failed", e)
