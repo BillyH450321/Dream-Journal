@@ -30,35 +30,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
 
-sealed interface RecordingState {
-    object Idle : RecordingState
-    object Recording : RecordingState
-    data class Processing(val stage: String) : RecordingState
-    data class Success(val dreamId: Long) : RecordingState
-    data class Error(val message: String) : RecordingState
-}
-
-sealed interface PatternAnalysisState {
-    object Idle : PatternAnalysisState
-    object Loading : PatternAnalysisState
-    data class Success(val report: String, val dreamCountAnalyzed: Int) : PatternAnalysisState
-    data class Error(val message: String) : PatternAnalysisState
-}
-
-sealed interface ApiTestState {
-    object Idle : ApiTestState
-    object Loading : ApiTestState
-    data class Result(val message: String, val success: Boolean) : ApiTestState
-}
-
-data class AudioPlaybackState(
-    val dreamId: Long? = null,
-    val isPlaying: Boolean = false,
-    val currentPositionMs: Int = 0,
-    val durationMs: Int = 0,
-    val error: String? = null
-)
-
 class DreamJournalViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "DreamJournalViewModel"
     private val context = application.applicationContext
@@ -211,6 +182,10 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         }
         requestPaywall()
         return false
+    }
+
+    private suspend fun releaseReservedAnalysisSlot() {
+        usageQuotaStore.releaseAnalysisSlot()
     }
 
     private suspend fun requireProOrShowPaywall(): Boolean {
@@ -454,6 +429,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                         repository.updateDream(
                             dream.copy(analysisStatus = "failed", artworkStatus = "failed")
                         )
+                        releaseReservedAnalysisSlot()
                         _analyzingDreamId.value = null
                         return@launch
                     }
@@ -470,6 +446,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                         repository.updateDream(
                             dream.copy(analysisStatus = "failed", artworkStatus = "failed")
                         )
+                        releaseReservedAnalysisSlot()
                         _analyzingDreamId.value = null
                         return@launch
                     }
@@ -492,6 +469,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                         current.copy(analysisStatus = "failed", artworkStatus = "failed")
                     )
                 }
+                releaseReservedAnalysisSlot()
             } finally {
                 _analyzingDreamId.value = null
             }
@@ -611,6 +589,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                     transcription.contains("rate limit", ignoreCase = true) ||
                     transcription.contains("HTTP 429")
                 ) {
+                    releaseReservedAnalysisSlot()
                     _recordingState.value = RecordingState.Error(transcription)
                     return@launch
                 }
@@ -660,6 +639,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                         loadedDream.copy(analysisStatus = "failed", artworkStatus = "failed")
                     )
                 }
+                releaseReservedAnalysisSlot()
                 return
             }
 
@@ -726,6 +706,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                     loadedDream.copy(analysisStatus = "failed", artworkStatus = "failed")
                 )
             }
+            releaseReservedAnalysisSlot()
             if (updateRecordingState) {
                 _recordingState.value = RecordingState.Error(
                     "Dream analysis failed: ${e.localizedMessage ?: "Unknown error"}"

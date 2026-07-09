@@ -29,7 +29,12 @@ data class UsageQuotaSnapshot(
         get() = isPro || usedThisMonth < monthlyLimit
 }
 
-class UsageQuotaStore(private val context: Context) {
+class UsageQuotaStore(
+    private val context: Context,
+    private val monthKeyProvider: () -> String = {
+        SimpleDateFormat("yyyy-MM", Locale.US).format(Date())
+    }
+) {
     companion object {
         const val FREE_MONTHLY_ANALYSIS_LIMIT = 3
     }
@@ -84,13 +89,27 @@ class UsageQuotaStore(private val context: Context) {
         return allowed
     }
 
+    suspend fun releaseAnalysisSlot() {
+        context.usageQuotaDataStore.edit { prefs ->
+            val isPro = prefs[isProPreference] ?: false
+            if (isPro) return@edit
+
+            val currentMonth = currentMonthKey()
+            val storedMonth = prefs[analysisMonthPreference]
+            if (storedMonth != currentMonth) return@edit
+
+            val used = prefs[analysisCountPreference] ?: 0
+            if (used > 0) {
+                prefs[analysisCountPreference] = used - 1
+            }
+        }
+    }
+
     suspend fun setProUser(enabled: Boolean) {
         context.usageQuotaDataStore.edit { prefs ->
             prefs[isProPreference] = enabled
         }
     }
 
-    private fun currentMonthKey(): String {
-        return SimpleDateFormat("yyyy-MM", Locale.US).format(Date())
-    }
+    private fun currentMonthKey(): String = monthKeyProvider()
 }

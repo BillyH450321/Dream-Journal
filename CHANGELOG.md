@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Unit tests for API key resolution, dream search/filter helpers, and usage quota store
+- Room schema export for safer future migrations
+
+### Changed
+
+- Split monolithic `DreamJournalApp.kt` into navigation, screens, components, and util modules
+- Extracted ViewModel state types into `DreamJournalViewModelState.kt`
+- Analysis quota slots are refunded when AI analysis fails after reservation
+
+### Fixed
+
+- Gradle wrapper JVM argument quoting that prevented `./gradlew` from running in WSL
+
 ## [1.0.0] - 2026-07-08
 
 ### Added

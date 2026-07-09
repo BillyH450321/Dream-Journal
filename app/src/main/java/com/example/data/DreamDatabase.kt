@@ -64,7 +64,7 @@ interface DreamDao {
     suspend fun insertChatMessage(message: ChatMessage): Long
 }
 
-@Database(entities = [Dream::class, ChatMessage::class], version = 5, exportSchema = false)
+@Database(entities = [Dream::class, ChatMessage::class], version = 5, exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dreamDao(): DreamDao
 
