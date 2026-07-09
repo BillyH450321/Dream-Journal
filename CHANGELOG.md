@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Google Play Billing integration for monthly and yearly Pro subscriptions
+- `SubscriptionBillingManager` with purchase, restore, and entitlement sync
+- Play Console product IDs: `dream_weaver_pro_monthly`, `dream_weaver_pro_yearly`
 - `DreamAiClient` interface with `GeminiDreamAiClient` implementation for testable AI calls
 - `FakeDreamAiClient` and pipeline unit tests using the interface
 - Domain layer for analysis pipeline, voice processing, playback, chat, tags, and quota gating
@@ -18,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Paywall launches real Google Play subscription flows with live store prices
+- Pro entitlement from billing is separate from debug-only override in Settings
 - Split monolithic `DreamJournalApp.kt` into navigation, screens, components, and util modules
 - Slimmed `DreamJournalViewModel` into a coordinator delegating to domain services
 - Extracted ViewModel state types into `DreamJournalViewModelState.kt`

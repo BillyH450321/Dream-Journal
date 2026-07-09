@@ -1,7 +1,9 @@
 package com.example.ui
 
+import android.app.Activity
 import android.app.Application
 import android.util.Log
+import com.example.billing.SubscriptionBillingManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.ApiKeyStore
@@ -63,6 +65,11 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     )
     val usageQuota: StateFlow<UsageQuotaSnapshot> = _usageQuota.asStateFlow()
 
+    val billingUiState = billingManager.uiState
+
+    private val _isProDevOverride = MutableStateFlow(false)
+    val isProDevOverride: StateFlow<Boolean> = _isProDevOverride.asStateFlow()
+
     private val _paywallRequested = MutableStateFlow(false)
     val paywallRequested: StateFlow<Boolean> = _paywallRequested.asStateFlow()
 
@@ -71,6 +78,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
     private val tagEditor = DreamTagEditor(repository)
     private val patternAnalysisService = PatternAnalysisService(context, aiClient)
     private val playbackController = DreamPlaybackController(viewModelScope)
+    private val billingManager = SubscriptionBillingManager(context, usageQuotaStore, viewModelScope)
 
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     val recordingState: StateFlow<RecordingState> = _recordingState.asStateFlow()
@@ -133,6 +141,14 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                 _usageQuota.value = snapshot
             }
         }
+
+        viewModelScope.launch {
+            usageQuotaStore.isProDevOverride.collect { enabled ->
+                _isProDevOverride.value = enabled
+            }
+        }
+
+        billingManager.start()
     }
 
     fun saveApiKey(key: String) {
@@ -167,10 +183,22 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
         _paywallRequested.value = false
     }
 
-    fun setProUserForTesting(enabled: Boolean) {
+    fun setProDevOverrideForTesting(enabled: Boolean) {
         viewModelScope.launch {
-            usageQuotaStore.setProUser(enabled)
+            usageQuotaStore.setProDevOverride(enabled)
         }
+    }
+
+    fun purchaseProMonthly(activity: Activity) {
+        billingManager.purchaseMonthly(activity)
+    }
+
+    fun purchaseProYearly(activity: Activity) {
+        billingManager.purchaseYearly(activity)
+    }
+
+    fun restorePurchases() {
+        billingManager.restorePurchases()
     }
 
     fun selectDream(dreamId: Long?) {
@@ -258,6 +286,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
 
     override fun onCleared() {
         playbackController.stop()
+        billingManager.destroy()
         super.onCleared()
     }
 

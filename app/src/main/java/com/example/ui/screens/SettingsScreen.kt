@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -13,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -22,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import com.example.BuildConfig
 import com.example.ui.ApiTestState
 import com.example.ui.DreamJournalViewModel
 import com.example.ui.components.ProFeatureBadge
@@ -35,6 +38,7 @@ fun SettingsScreen(
     val storedApiKey by viewModel.storedApiKey.collectAsStateWithLifecycle()
     val apiTestState by viewModel.apiTestState.collectAsStateWithLifecycle()
     val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
+    val isProDevOverride by viewModel.isProDevOverride.collectAsStateWithLifecycle()
     var apiKeyInput by remember(storedApiKey) { mutableStateOf(storedApiKey) }
 
     Box(
@@ -189,60 +193,62 @@ fun SettingsScreen(
                     }
                 }
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = EtherealCard),
-                    border = BorderStroke(1.dp, DreamGold.copy(alpha = 0.3f))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                if (BuildConfig.DEBUG) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = EtherealCard),
+                        border = BorderStroke(1.dp, DreamGold.copy(alpha = 0.3f))
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .size(44.dp)
-                                .background(
-                                    Brush.linearGradient(colors = listOf(DreamGold, DreamPurple)),
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Verified,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(
+                                        Brush.linearGradient(colors = listOf(DreamGold, DreamPurple)),
+                                        CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "Unlock Pro (testing)",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = DreamGold
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
                                 )
-                                ProFeatureBadge()
                             }
-                            Text(
-                                text = "Bypass usage limits while Google Play billing is in development.",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                lineHeight = 16.sp
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Unlock Pro (debug only)",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DreamGold
+                                    )
+                                    ProFeatureBadge()
+                                }
+                                Text(
+                                    text = "Local dev override. Release builds use Google Play subscriptions only.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            Switch(
+                                checked = isProDevOverride,
+                                onCheckedChange = viewModel::setProDevOverrideForTesting,
+                                modifier = Modifier.testTag("pro_testing_switch")
                             )
                         }
-                        Switch(
-                            checked = usageQuota.isPro,
-                            onCheckedChange = viewModel::setProUserForTesting,
-                            modifier = Modifier.testTag("pro_testing_switch")
-                        )
                     }
                 }
             }

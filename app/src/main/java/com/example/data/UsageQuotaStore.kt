@@ -1,6 +1,7 @@
 package com.example.data
 
 import android.content.Context
+import com.example.BuildConfig
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -39,9 +40,14 @@ class UsageQuotaStore(
         const val FREE_MONTHLY_ANALYSIS_LIMIT = 3
     }
 
-    private val isProPreference = booleanPreferencesKey("is_pro_user")
+    private val isProBillingPreference = booleanPreferencesKey("is_pro_billing")
+    private val isProDevOverridePreference = booleanPreferencesKey("is_pro_dev_override")
     private val analysisCountPreference = intPreferencesKey("analysis_count_month")
     private val analysisMonthPreference = stringPreferencesKey("analysis_month_key")
+
+    val isProDevOverride: Flow<Boolean> = context.usageQuotaDataStore.data.map { prefs ->
+        prefs[isProDevOverridePreference] ?: false
+    }
 
     val usageSnapshot: Flow<UsageQuotaSnapshot> = context.usageQuotaDataStore.data.map { prefs ->
         val currentMonth = currentMonthKey()
@@ -51,7 +57,7 @@ class UsageQuotaStore(
         } else {
             0
         }
-        val isPro = prefs[isProPreference] ?: false
+        val isPro = isProEntitled(prefs)
 
         UsageQuotaSnapshot(
             isPro = isPro,
@@ -63,8 +69,7 @@ class UsageQuotaStore(
     suspend fun reserveAnalysisSlot(): Boolean {
         var allowed = false
         context.usageQuotaDataStore.edit { prefs ->
-            val isPro = prefs[isProPreference] ?: false
-            if (isPro) {
+            if (isProEntitled(prefs)) {
                 allowed = true
                 return@edit
             }
@@ -91,8 +96,7 @@ class UsageQuotaStore(
 
     suspend fun releaseAnalysisSlot() {
         context.usageQuotaDataStore.edit { prefs ->
-            val isPro = prefs[isProPreference] ?: false
-            if (isPro) return@edit
+            if (isProEntitled(prefs)) return@edit
 
             val currentMonth = currentMonthKey()
             val storedMonth = prefs[analysisMonthPreference]
@@ -105,10 +109,28 @@ class UsageQuotaStore(
         }
     }
 
-    suspend fun setProUser(enabled: Boolean) {
+    suspend fun setProFromBilling(enabled: Boolean) {
         context.usageQuotaDataStore.edit { prefs ->
-            prefs[isProPreference] = enabled
+            prefs[isProBillingPreference] = enabled
         }
+    }
+
+    suspend fun setProDevOverride(enabled: Boolean) {
+        if (!BuildConfig.DEBUG) return
+        context.usageQuotaDataStore.edit { prefs ->
+            prefs[isProDevOverridePreference] = enabled
+        }
+    }
+
+    /** @deprecated Use [setProFromBilling] or [setProDevOverride]. Kept for tests. */
+    suspend fun setProUser(enabled: Boolean) {
+        setProFromBilling(enabled)
+    }
+
+    private fun isProEntitled(prefs: Preferences): Boolean {
+        val billing = prefs[isProBillingPreference] ?: false
+        val devOverride = BuildConfig.DEBUG && (prefs[isProDevOverridePreference] ?: false)
+        return billing || devOverride
     }
 
     private fun currentMonthKey(): String = monthKeyProvider()

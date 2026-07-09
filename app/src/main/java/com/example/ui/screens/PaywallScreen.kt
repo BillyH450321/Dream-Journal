@@ -1,10 +1,11 @@
 package com.example.ui.screens
 
-import android.widget.Toast
+import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -32,7 +35,15 @@ fun PaywallScreen(
     navController: NavHostController
 ) {
     val usageQuota by viewModel.usageQuota.collectAsStateWithLifecycle()
+    val billingState by viewModel.billingUiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val activity = context as? Activity
+
+    LaunchedEffect(usageQuota.isPro) {
+        if (usageQuota.isPro) {
+            navController.popBackStack()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -117,39 +128,78 @@ fun PaywallScreen(
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "\$4.99 / month",
+                        text = billingState.monthlyPrice?.let { "$it / month" } ?: "\$4.99 / month",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = DreamGold
                     )
-                    Text(
-                        text = "or \$39.99 / year (save 33%)",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            android.widget.Toast.makeText(
-                                context,
-                                "Google Play billing coming in the next update!",
-                                android.widget.Toast.LENGTH_LONG
-                            ).show()
+                            activity?.let { viewModel.purchaseProMonthly(it) }
                         },
+                        enabled = !billingState.purchaseInProgress && activity != null,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("paywall_upgrade_button"),
+                            .testTag("paywall_monthly_button"),
                         colors = ButtonDefaults.buttonColors(containerColor = DreamPurple)
                     ) {
-                        Text("Upgrade to Pro", color = Color.White, fontWeight = FontWeight.Bold)
+                        if (billingState.purchaseInProgress) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Subscribe Monthly", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    HorizontalDivider(color = EtherealCardBorder)
+
+                    Text(
+                        text = billingState.yearlyPrice?.let { "$it / year" } ?: "\$39.99 / year (save 33%)",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = DreamTeal
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            activity?.let { viewModel.purchaseProYearly(it) }
+                        },
+                        enabled = !billingState.purchaseInProgress && activity != null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("paywall_yearly_button"),
+                        border = BorderStroke(1.dp, DreamTeal)
+                    ) {
+                        Text("Subscribe Yearly", color = DreamTeal, fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            billingState.errorMessage?.let { error ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = error,
+                    fontSize = 12.sp,
+                    color = Color(0xFFFF8A80),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            TextButton(
+                onClick = { viewModel.restorePurchases() },
+                modifier = Modifier.testTag("paywall_restore_button")
+            ) {
+                Text("Restore purchases", color = DreamTeal)
+            }
 
             if (!usageQuota.isPro) {
                 Text(
@@ -161,7 +211,7 @@ fun PaywallScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             TextButton(onClick = { navController.popBackStack() }) {
                 Text("Maybe later", color = TextSecondary)
@@ -169,4 +219,3 @@ fun PaywallScreen(
         }
     }
 }
-
