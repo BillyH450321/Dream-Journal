@@ -344,6 +344,21 @@ fun DetailScreen(
                                                     color = Color.White
                                                 )
                                             }
+                                        } else if (currentDream.artworkStatus == "deferred") {
+                                            Icon(
+                                                imageVector = Icons.Default.Image,
+                                                contentDescription = "Artwork pending analysis",
+                                                tint = Color.White.copy(alpha = 0.3f),
+                                                modifier = Modifier.size(48.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text(
+                                                text = "Artwork generates after AI analysis",
+                                                fontSize = 13.sp,
+                                                color = TextSecondary,
+                                                fontWeight = FontWeight.Medium,
+                                                textAlign = TextAlign.Center
+                                            )
                                         } else {
                                             Icon(
                                                 imageVector = Icons.Default.AutoAwesome,

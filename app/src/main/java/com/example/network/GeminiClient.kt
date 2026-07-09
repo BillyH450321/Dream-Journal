@@ -2,6 +2,7 @@ package com.example.network
 
 import android.util.Log
 import com.example.BuildConfig
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -24,9 +25,9 @@ import java.util.concurrent.TimeUnit
 @JsonClass(generateAdapter = true)
 data class GenerateContentRequest(
     val contents: List<Content>,
-    val generationConfig: GenerationConfig? = null,
-    val systemInstruction: Content? = null,
-    val safetySettings: List<SafetySetting>? = null
+    @Json(name = "generation_config") val generationConfig: GenerationConfig? = null,
+    @Json(name = "system_instruction") val systemInstruction: Content? = null,
+    @Json(name = "safety_settings") val safetySettings: List<SafetySetting>? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -44,30 +45,30 @@ data class Content(
 @JsonClass(generateAdapter = true)
 data class Part(
     val text: String? = null,
-    val inlineData: InlineData? = null
+    @Json(name = "inline_data") val inlineData: InlineData? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class InlineData(
-    val mimeType: String,
+    @Json(name = "mime_type") val mimeType: String,
     val data: String // Base64 representation
 )
 
 @JsonClass(generateAdapter = true)
 data class GenerationConfig(
-    val responseMimeType: String? = null,
-    val responseSchema: ResponseSchema? = null,
+    @Json(name = "response_mime_type") val responseMimeType: String? = null,
+    @Json(name = "response_schema") val responseSchema: ResponseSchema? = null,
     val temperature: Float? = null,
-    val topP: Float? = null,
-    val topK: Int? = null,
-    val imageConfig: ImageConfig? = null,
-    val responseModalities: List<String>? = null
+    @Json(name = "top_p") val topP: Float? = null,
+    @Json(name = "top_k") val topK: Int? = null,
+    @Json(name = "image_config") val imageConfig: ImageConfig? = null,
+    @Json(name = "response_modalities") val responseModalities: List<String>? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class ImageConfig(
-    val aspectRatio: String? = null, // e.g. "1:1", "3:4", "4:3"
-    val imageSize: String? = null // e.g. "1K", "2K"
+    @Json(name = "aspect_ratio") val aspectRatio: String? = null, // e.g. "1:1", "3:4", "4:3"
+    @Json(name = "image_size") val imageSize: String? = null // e.g. "1K", "2K"
 )
 
 @JsonClass(generateAdapter = true)
@@ -93,7 +94,7 @@ data class GenerateContentResponse(
 @JsonClass(generateAdapter = true)
 data class Candidate(
     val content: Content? = null,
-    val finishReason: String? = null
+    @Json(name = "finish_reason") val finishReason: String? = null
 )
 
 // --- Retrofit Service ---
@@ -120,6 +121,7 @@ object GeminiClient {
 
     private val IMAGE_MODELS = listOf(
         "gemini-3.1-flash-image",
+        "gemini-3.1-flash-lite-image",
         "gemini-2.5-flash-image"
     )
 
