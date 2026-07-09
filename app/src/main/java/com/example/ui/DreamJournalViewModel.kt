@@ -29,6 +29,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.File
 
 class DreamJournalViewModel(application: Application) : AndroidViewModel(application) {
     private val tag = "DreamJournalViewModel"
@@ -412,6 +413,7 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
 
     private fun processRecordedAudio(file: File, analyzeNow: Boolean) {
         viewModelScope.launch {
+            var reservedQuota = false
             try {
                 if (!analyzeNow) {
                     val id = voiceProcessor.saveDeferredRecording(file)
@@ -424,11 +426,13 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                     finishRecordingSuccess(id)
                     return@launch
                 }
+                reservedQuota = true
 
                 _recordingState.value = RecordingState.Processing("Transcribing dream recording...")
                 val result = voiceProcessor.transcribeAndPersist(file)
                 if (GeminiResponseValidator.isTranscriptionFailure(result.transcription)) {
                     quotaGate.releaseAnalysisSlot()
+                    reservedQuota = false
                     _recordingState.value = RecordingState.Error(result.transcription)
                     return@launch
                 }
@@ -440,6 +444,9 @@ class DreamJournalViewModel(application: Application) : AndroidViewModel(applica
                 runAnalysis(id, result.transcription, updateRecordingState = true)
             } catch (e: Exception) {
                 Log.e(tag, "Failed to process audio recording", e)
+                if (reservedQuota) {
+                    quotaGate.releaseAnalysisSlot()
+                }
                 _recordingState.value = RecordingState.Error("Failed to save dream: ${e.localizedMessage}")
             }
         }
