@@ -27,6 +27,9 @@ import com.example.ui.util.needsAnalysis
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.platform.testTag
 
 @Composable
 fun DreamListItem(

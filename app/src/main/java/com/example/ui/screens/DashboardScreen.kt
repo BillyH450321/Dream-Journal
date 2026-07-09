@@ -40,6 +40,8 @@ import com.example.ui.navigation.Routes
 import com.example.ui.theme.*
 import com.example.ui.util.filterDreams
 import android.Manifest
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.shadow
 
 @Composable
 fun DashboardScreen(

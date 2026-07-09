@@ -34,6 +34,9 @@ import androidx.navigation.NavHostController
 import com.example.ui.DreamJournalViewModel
 import com.example.ui.RecordingState
 import com.example.ui.theme.*
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 
 @Composable
 fun RecorderScreen(

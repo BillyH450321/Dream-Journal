@@ -13,6 +13,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.ChatMessage
 import com.example.ui.theme.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.shadow
 
 @Composable
 fun ChatBubble(message: ChatMessage) {
