@@ -116,14 +116,17 @@ object GeminiClient {
     private val TEXT_MODELS = listOf(
         "gemini-2.5-flash",
         "gemini-3.5-flash",
-        "gemini-2.5-flash-lite"
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash-preview",
+        "gemini-3.1-flash"
     )
 
     private val IMAGE_MODELS = listOf(
         "gemini-2.5-flash-image",
         "gemini-3.1-flash-image",
         "gemini-3.1-flash-lite-image",
-        "gemini-2.0-flash-preview-image-generation"
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-3.5-flash-image"
     )
 
     private const val MIN_REQUEST_INTERVAL_MS = 3_000L
