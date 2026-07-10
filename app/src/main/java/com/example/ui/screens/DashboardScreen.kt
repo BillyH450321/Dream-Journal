@@ -11,8 +11,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -168,30 +170,39 @@ fun DashboardScreen(
                 }
             }
 
-            Column(
+            val listState = rememberLazyListState()
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 24.dp)
+                    .testTag("dashboard_scroll_list"),
+                contentPadding = PaddingValues(top = 24.dp, bottom = 120.dp)
             ) {
-                Spacer(modifier = Modifier.height(24.dp))
+                item(key = "usage_quota") {
+                    UsageQuotaCard(
+                        usageQuota = usageQuota,
+                        onUpgradeClick = { navController.navigate(Routes.PAYWALL) }
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
 
-                UsageQuotaCard(
-                    usageQuota = usageQuota,
-                    onUpgradeClick = { navController.navigate(Routes.PAYWALL) }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                AnalyzeModeSettingsCard(
-                    analyzeWithAi = analyzeWithAiDefault,
-                    onAnalyzeWithAiChanged = viewModel::setAnalyzeWithAiDefault
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+                item(key = "analyze_mode") {
+                    AnalyzeModeSettingsCard(
+                        analyzeWithAi = analyzeWithAiDefault,
+                        onAnalyzeWithAiChanged = viewModel::setAnalyzeWithAiDefault
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
 
                 // Subconscious Statistics Dashboard
                 if (dreams.isNotEmpty()) {
-                    DreamStatsCard(dreams = dreams)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    item(key = "dream_stats") {
+                        DreamStatsCard(dreams = dreams)
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
 
+                    item(key = "pattern_cta") {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -272,18 +283,22 @@ fun DashboardScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
+                    }
                 }
 
-                Text(
-                    text = "Dream Chronicles",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+                item(key = "chronicles_header") {
+                    Text(
+                        text = "Dream Chronicles",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
 
                 // Styled modern search bar
                 if (dreams.isNotEmpty()) {
+                    item(key = "search_bar") {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
@@ -321,13 +336,15 @@ fun DashboardScreen(
                         shape = RoundedCornerShape(20.dp),
                         singleLine = true
                     )
+                    }
                 }
 
                 if (filteredDreams.isEmpty()) {
+                    item(key = "empty_state") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
+                            .padding(vertical = 48.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -391,13 +408,15 @@ fun DashboardScreen(
                             }
                         }
                     }
+                    }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        contentPadding = PaddingValues(bottom = 80.dp)
-                    ) {
-                        items(filteredDreams, key = { it.id }) { dream ->
+                    items(filteredDreams, key = { it.id }) { dream ->
+                        Box(
+                            modifier = Modifier
+                                .animateItem()
+                                .padding(bottom = 16.dp)
+                                .animateContentSize()
+                        ) {
                             DreamListItem(
                                 dream = dream,
                                 onClick = {
@@ -410,8 +429,8 @@ fun DashboardScreen(
                         }
                     }
                 }
+            }
         }
-    }
 
         // Immersive glowing Floating Action Button
         Box(
