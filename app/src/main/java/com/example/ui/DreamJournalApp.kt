@@ -189,11 +189,12 @@ fun DreamJournalApp(
             }
         }
     ) {
-        Scaffold(
-            modifier = modifier.fillMaxSize(),
-            containerColor = MaterialTheme.colorScheme.background
-        ) { innerPadding ->
-            NavHost(
+        LiquidGlassBackground {
+            Scaffold(
+                modifier = modifier.fillMaxSize(),
+                containerColor = androidx.compose.ui.graphics.Color.Transparent
+            ) { innerPadding ->
+                NavHost(
                 navController = navController,
                 startDestination = Routes.DASHBOARD,
                 modifier = Modifier.padding(innerPadding)
@@ -244,6 +245,7 @@ fun DreamJournalApp(
                         viewModel = viewModel,
                         navController = navController
                     )
+                }
                 }
             }
         }
